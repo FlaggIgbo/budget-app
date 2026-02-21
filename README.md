@@ -18,11 +18,74 @@ A modern financial budgeting web application designed to help users take control
 
 ## Tech Stack
 
-> TBD
+**PEAN Stack** — PostgreSQL, Express, Angular, Node.js
+
+- **PostgreSQL** — Relational database
+- **Express** — REST API backend
+- **Angular** — SPA frontend
+- **Node.js** — Runtime
+
+Additional: Sequelize ORM, JWT auth (planned), Docker for local Postgres
+
+## Project Structure
+
+```
+budget-app/
+├── client/                 # Angular application
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── components/
+│   │   │   ├── services/
+│   │   │   └── models/
+│   │   └── assets/
+│   └── package.json
+├── server/                 # Node/Express application
+│   ├── config/             # DB connection & environment
+│   ├── controllers/
+│   ├── models/             # Sequelize definitions
+│   ├── routes/
+│   ├── middleware/
+│   ├── index.js            # Entry point
+│   └── package.json
+├── docker-compose.yml      # PostgreSQL instance
+├── .gitignore
+└── README.md
+```
 
 ## Getting Started
 
-> Coming soon — the project is currently in the planning phase.
+### Prerequisites
+
+- Node.js 18+
+- Docker (for PostgreSQL)
+- npm or yarn
+
+### 1. Start PostgreSQL
+
+```bash
+docker compose up -d
+```
+
+### 2. Backend (API)
+
+```bash
+cd server
+cp .env.example .env   # Edit if needed
+npm install
+npm run dev
+```
+
+API runs at `http://localhost:4000`
+
+### 3. Frontend (Angular)
+
+```bash
+cd client
+npm install
+ng serve
+```
+
+App runs at `http://localhost:4200` (proxies `/api` to backend)
 
 ## License
 
