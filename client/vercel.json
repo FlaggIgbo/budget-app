@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://budget-app-api.onrender.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
