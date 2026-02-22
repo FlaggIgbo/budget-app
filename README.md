@@ -13,7 +13,7 @@ A modern financial budgeting web application designed to help users take control
 - **Savings Goals** — Set, track, and visualize progress toward financial goals
 - **Bill Reminders** — Alerts for upcoming bills and due dates
 - **Spending Insights** — Charts and analytics to understand spending habits
-- **Account Linking** — Connect bank accounts and credit cards
+- **Account Linking** — Connect bank accounts via [Teller.io](https://teller.io)
 - **Reports & Export** — Generate financial reports and export data
 
 ## Tech Stack

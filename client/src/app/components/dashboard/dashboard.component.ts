@@ -1,15 +1,17 @@
 import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterLink],
   template: `
     <div class="dashboard">
       <h1>Budget App</h1>
       <p>Dashboard — coming soon</p>
+      <a routerLink="/accounts" class="link-accounts">Connect bank account →</a>
       @if (apiStatus(); as status) {
         <p class="api-status" [class.connected]="status === 'ok'">
           API: {{ status }}
@@ -28,6 +30,12 @@ import { ApiService } from '../../services/api.service';
     }
     .api-status.connected {
       color: #22c55e;
+    }
+    .link-accounts {
+      display: inline-block;
+      margin-top: 1rem;
+      color: #0f172a;
+      font-weight: 500;
     }
   `],
 })

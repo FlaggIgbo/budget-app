@@ -23,4 +23,8 @@ const db = {
   Sequelize,
 };
 
+// Register models
+const Enrollment = require('./Enrollment')(sequelize);
+db.Enrollment = Enrollment;
+
 module.exports = db;
