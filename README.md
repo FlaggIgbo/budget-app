@@ -92,7 +92,7 @@ App runs at `http://localhost:4200` (proxies `/api` to backend)
 
 ### 4. Login (sandbox)
 
-In sandbox/development, sign in with:
+In sandbox/development, the sandbox user is auto-seeded on server startup. Sign in with:
 
 - **Phone:** `555-555-5555` (or `+15555555555`)
 - **OTP:** `123456`
