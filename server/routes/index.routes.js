@@ -4,6 +4,7 @@
 const controller = require('../controllers/index.controller');
 
 module.exports = (app) => {
+  app.get('/', controller.healthCheck);
   app.get('/api', controller.healthCheck);
   app.get('/api/health', controller.healthCheck);
 };
