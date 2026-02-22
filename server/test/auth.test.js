@@ -13,6 +13,8 @@ describe('Auth API', () => {
     process.env.NODE_ENV = 'test';
     process.env.TELLER_ENVIRONMENT = 'sandbox';
     app = require('../app');
+    const db = require('../models');
+    await db.sequelize.sync();
   });
 
   describe('POST /api/auth/send-otp', () => {
@@ -53,7 +55,9 @@ describe('Auth API', () => {
       assert.strictEqual(res.body.ok, true);
       assert.ok(res.body.user?.id);
       assert.ok(res.body.user?.phone);
-      assert.ok(res.headers['set-cookie']?.some((c) => c.includes('session')));
+      const setCookie = res.headers['set-cookie'];
+      const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+      assert.ok(cookies.some((c) => c.includes('session')), 'expected session cookie');
     });
   });
 });
