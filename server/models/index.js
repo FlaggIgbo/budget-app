@@ -5,10 +5,15 @@
 const { Sequelize } = require('sequelize');
 const dbConfig = require('../config/db.config');
 
+const useSsl =
+  process.env.DATABASE_URL &&
+  !process.env.DATABASE_URL.includes('localhost') &&
+  !process.env.DATABASE_URL.includes('127.0.0.1');
+
 const sequelize = process.env.DATABASE_URL
   ? new Sequelize(process.env.DATABASE_URL, {
       dialect: 'postgres',
-      dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+      dialectOptions: useSsl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
       pool: dbConfig.pool,
     })
   : new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
