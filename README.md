@@ -32,24 +32,21 @@ Additional: Sequelize ORM, JWT auth (planned), Docker for local Postgres
 ```
 budget-app/
 ├── client/                 # Angular application
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── components/
-│   │   │   ├── services/
-│   │   │   └── models/
-│   │   └── assets/
+│   ├── src/app/
+│   │   ├── components/     # Login, Dashboard, Bank Accounts
+│   │   ├── services/       # API, Auth, Teller
+│   │   └── guards/
 │   └── package.json
-├── server/                 # Node/Express application
-│   ├── config/             # DB connection & environment
+├── server/                 # Node/Express API
 │   ├── controllers/
-│   ├── models/             # Sequelize definitions
+│   ├── models/             # User, Session, Enrollment, Account
 │   ├── routes/
-│   ├── middleware/
-│   ├── index.js            # Entry point
+│   ├── test/               # API tests
 │   └── package.json
-├── docker-compose.yml      # PostgreSQL instance
-├── .gitignore
-└── README.md
+├── docs/internal/         # Teller setup, etc.
+├── .github/workflows/      # CI (tests on push)
+├── docker-compose.yml
+└── package.json            # Root scripts (test, etc.)
 ```
 
 ## Getting Started
@@ -59,6 +56,12 @@ budget-app/
 - Node.js 18+
 - Docker (for PostgreSQL)
 - npm or yarn
+
+From the project root, install dependencies:
+
+```bash
+npm run install:all
+```
 
 ### 1. Start PostgreSQL
 
@@ -86,6 +89,42 @@ ng serve
 ```
 
 App runs at `http://localhost:4200` (proxies `/api` to backend)
+
+### 4. Login (sandbox)
+
+In sandbox/development, sign in with:
+
+- **Phone:** `555-555-5555` (or `+15555555555`)
+- **OTP:** `123456`
+
+Sessions use HTTP-only cookies. Log out via the dashboard or bank accounts page.
+
+## Format & Lint
+
+```bash
+npm run format     # Prettier
+npm run lint       # Check lint
+npm run lint:fix   # Auto-fix lint issues
+```
+
+These run automatically on commit via Husky + lint-staged.
+
+## Testing
+
+Run all tests (requires Docker for PostgreSQL):
+
+```bash
+npm test
+```
+
+Or run separately:
+
+```bash
+npm run test:server   # API tests (auth, health, config)
+npm run test:client   # Angular component tests
+```
+
+Tests run automatically on push/PR via GitHub Actions. A pre-commit hook also runs tests before each commit.
 
 ## License
 

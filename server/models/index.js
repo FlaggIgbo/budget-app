@@ -24,7 +24,22 @@ const db = {
 };
 
 // Register models
+const User = require('./User')(sequelize);
+const Session = require('./Session')(sequelize);
 const Enrollment = require('./Enrollment')(sequelize);
+const Account = require('./Account')(sequelize);
+
+db.User = User;
+db.Session = Session;
 db.Enrollment = Enrollment;
+db.Account = Account;
+
+// Associations: User (phone) -> Enrollments, Accounts
+User.hasMany(Session, { foreignKey: 'userId' });
+Session.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(Enrollment, { foreignKey: 'userId' });
+Enrollment.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(Account, { foreignKey: 'userId' });
+Account.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = db;
