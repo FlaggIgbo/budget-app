@@ -1,6 +1,6 @@
 /**
  * Enrollment model - stores Teller access tokens.
- * Links a user's bank enrollment to our app. userId optional until auth is implemented.
+ * Key: user (phone) -> enrollment. userId required; always linked to User.
  */
 const { DataTypes } = require('sequelize');
 
@@ -32,6 +32,7 @@ module.exports = (sequelize) => {
         type: DataTypes.UUID,
         allowNull: true,
         field: 'user_id',
+        references: { model: 'users', key: 'id' },
       },
     },
     {

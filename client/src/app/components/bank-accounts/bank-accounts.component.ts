@@ -1,7 +1,13 @@
-import { Component, OnInit, signal, computed } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { TellerService, TellerEnrollment, TellerAccount, TellerConfig } from '../../services/teller.service';
+import {
+  TellerService,
+  TellerEnrollment,
+  TellerAccount,
+  TellerConfig,
+} from '../../services/teller.service';
+import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-bank-accounts',
@@ -10,7 +16,10 @@ import { TellerService, TellerEnrollment, TellerAccount, TellerConfig } from '..
   template: `
     <div class="bank-accounts">
       <header>
-        <a routerLink="/dashboard" class="back">← Dashboard</a>
+        <div class="header-row">
+          <a routerLink="/dashboard" class="back">← Dashboard</a>
+          <button class="btn-logout" (click)="logout()">Log out</button>
+        </div>
         <h1>Bank Accounts</h1>
         <p class="subtitle">Connect your bank to sync transactions and balances</p>
       </header>
@@ -21,11 +30,7 @@ import { TellerService, TellerEnrollment, TellerAccount, TellerConfig } from '..
             Teller is not configured. Add TELLER_APPLICATION_ID to your API server environment.
           </div>
         } @else {
-          <button
-            class="btn-connect"
-            (click)="connectBank()"
-            [disabled]="connecting()"
-          >
+          <button class="btn-connect" (click)="connectBank()" [disabled]="connecting()">
             {{ connecting() ? 'Connecting…' : '+ Connect bank account' }}
           </button>
         }
@@ -70,78 +75,143 @@ import { TellerService, TellerEnrollment, TellerAccount, TellerConfig } from '..
       </section>
     </div>
   `,
-  styles: [`
-    .bank-accounts {
-      padding: 2rem;
-      font-family: system-ui, sans-serif;
-      max-width: 640px;
-      margin: 0 auto;
-    }
-    .back {
-      color: #64748b;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-bottom: 1rem;
-      display: inline-block;
-    }
-    .back:hover { color: #0f172a; }
-    h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-    .subtitle { color: #64748b; margin: 0 0 1.5rem; font-size: 0.95rem; }
-    .btn-connect {
-      background: #0f172a;
-      color: white;
-      border: none;
-      padding: 0.75rem 1.25rem;
-      border-radius: 8px;
-      font-size: 1rem;
-      cursor: pointer;
-      margin-bottom: 2rem;
-    }
-    .btn-connect:hover:not(:disabled) { background: #1e293b; }
-    .btn-connect:disabled { opacity: 0.6; cursor: not-allowed; }
-    .alert, .error {
-      padding: 1rem;
-      border-radius: 8px;
-      margin-bottom: 1rem;
-    }
-    .alert { background: #fef3c7; color: #92400e; }
-    .error { background: #fee2e2; color: #991b1b; }
-    .enrollments h2 { font-size: 1.1rem; margin-bottom: 1rem; }
-    .empty { color: #64748b; }
-    .enrollment-card {
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .enrollment-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.75rem;
-    }
-    .institution { font-weight: 600; }
-    .btn-disconnect {
-      background: transparent;
-      color: #dc2626;
-      border: 1px solid #dc2626;
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
-      font-size: 0.85rem;
-      cursor: pointer;
-    }
-    .btn-disconnect:hover:not(:disabled) { background: #fef2f2; }
-    .btn-disconnect:disabled { opacity: 0.6; }
-    .accounts { list-style: none; margin: 0; padding: 0; }
-    .account {
-      padding: 0.5rem 0;
-      border-top: 1px solid #f1f5f9;
-      font-size: 0.9rem;
-    }
-    .account .name { font-weight: 500; }
-    .account .meta { color: #64748b; margin-left: 0.5rem; }
-    .loading { color: #64748b; font-size: 0.9rem; margin: 0; }
-  `],
+  styles: [
+    `
+      .bank-accounts {
+        padding: 2rem;
+        font-family: system-ui, sans-serif;
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      .back {
+        color: #64748b;
+        text-decoration: none;
+        font-size: 0.9rem;
+        display: inline-block;
+      }
+      .back:hover {
+        color: #0f172a;
+      }
+      .btn-logout {
+        background: transparent;
+        color: #64748b;
+        border: 1px solid #e2e8f0;
+        padding: 0.4rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      .btn-logout:hover {
+        color: #0f172a;
+        border-color: #94a3b8;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.5rem;
+      }
+      .subtitle {
+        color: #64748b;
+        margin: 0 0 1.5rem;
+        font-size: 0.95rem;
+      }
+      .btn-connect {
+        background: #0f172a;
+        color: white;
+        border: none;
+        padding: 0.75rem 1.25rem;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-bottom: 2rem;
+      }
+      .btn-connect:hover:not(:disabled) {
+        background: #1e293b;
+      }
+      .btn-connect:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .alert,
+      .error {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+      }
+      .alert {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .enrollments h2 {
+        font-size: 1.1rem;
+        margin-bottom: 1rem;
+      }
+      .empty {
+        color: #64748b;
+      }
+      .enrollment-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+      }
+      .enrollment-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+      }
+      .institution {
+        font-weight: 600;
+      }
+      .btn-disconnect {
+        background: transparent;
+        color: #dc2626;
+        border: 1px solid #dc2626;
+        padding: 0.35rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .btn-disconnect:hover:not(:disabled) {
+        background: #fef2f2;
+      }
+      .btn-disconnect:disabled {
+        opacity: 0.6;
+      }
+      .accounts {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .account {
+        padding: 0.5rem 0;
+        border-top: 1px solid #f1f5f9;
+        font-size: 0.9rem;
+      }
+      .account .name {
+        font-weight: 500;
+      }
+      .account .meta {
+        color: #64748b;
+        margin-left: 0.5rem;
+      }
+      .loading {
+        color: #64748b;
+        font-size: 0.9rem;
+        margin: 0;
+      }
+    `,
+  ],
 })
 export class BankAccountsComponent implements OnInit {
   config = signal<TellerConfig | null>(null);
@@ -152,7 +222,10 @@ export class BankAccountsComponent implements OnInit {
   disconnecting = signal<string | null>(null);
   error = signal<string | null>(null);
 
-  constructor(private teller: TellerService) {}
+  constructor(
+    private teller: TellerService,
+    private auth: AuthService
+  ) {}
 
   ngOnInit() {
     this.teller.getConfig().subscribe({
@@ -222,6 +295,12 @@ export class BankAccountsComponent implements OnInit {
           });
       },
       onExit: () => this.connecting.set(false),
+    });
+  }
+
+  logout() {
+    this.auth.logout().subscribe({
+      next: () => window.location.assign('/login'),
     });
   }
 

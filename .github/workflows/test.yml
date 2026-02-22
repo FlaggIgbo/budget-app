@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: budget_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install server deps
+        run: cd server && npm ci
+
+      - name: Install client deps
+        run: cd client && npm ci
+
+      - name: Run server tests
+        env:
+          NODE_ENV: test
+          TELLER_ENVIRONMENT: sandbox
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/budget_app_test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: budget_app_test
+        run: cd server && npm test
+
+      - name: Run client tests
+        run: cd client && npm test -- --no-watch --browsers=ChromeHeadless

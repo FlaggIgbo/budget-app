@@ -5,10 +5,15 @@
 const { Sequelize } = require('sequelize');
 const dbConfig = require('../config/db.config');
 
+const useSsl =
+  process.env.DATABASE_URL &&
+  !process.env.DATABASE_URL.includes('localhost') &&
+  !process.env.DATABASE_URL.includes('127.0.0.1');
+
 const sequelize = process.env.DATABASE_URL
   ? new Sequelize(process.env.DATABASE_URL, {
       dialect: 'postgres',
-      dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+      dialectOptions: useSsl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
       pool: dbConfig.pool,
     })
   : new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
@@ -24,7 +29,22 @@ const db = {
 };
 
 // Register models
+const User = require('./User')(sequelize);
+const Session = require('./Session')(sequelize);
 const Enrollment = require('./Enrollment')(sequelize);
+const Account = require('./Account')(sequelize);
+
+db.User = User;
+db.Session = Session;
 db.Enrollment = Enrollment;
+db.Account = Account;
+
+// Associations: User (phone) -> Enrollments, Accounts
+User.hasMany(Session, { foreignKey: 'userId' });
+Session.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(Enrollment, { foreignKey: 'userId' });
+Enrollment.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(Account, { foreignKey: 'userId' });
+Account.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = db;

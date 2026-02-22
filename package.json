@@ -1,0 +1,25 @@
+{
+  "name": "budget-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Budget App - PEAN Stack",
+  "scripts": {
+    "prepare": "husky",
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "format": "prettier --write \"**/*.{js,ts,html,json,scss,css}\"",
+    "lint": "npm run lint:server && npm run lint:client",
+    "lint:fix": "npm run lint:fix:server && npm run lint:fix:client",
+    "lint:server": "cd server && npx eslint .",
+    "lint:client": "cd client && ng lint",
+    "lint:fix:server": "cd server && npx eslint . --fix",
+    "lint:fix:client": "cd client && ng lint --fix",
+    "test": "npm run test:server && npm run test:client",
+    "test:server": "cd server && npm test",
+    "test:client": "cd client && npm test -- --no-watch --browsers=ChromeHeadless"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1"
+  }
+}

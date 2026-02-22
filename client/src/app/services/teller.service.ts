@@ -5,6 +5,7 @@ import { Observable, from, of } from 'rxjs';
 export interface TellerConfig {
   tellerApplicationId: string;
   tellerEnvironment: string;
+  authSandbox?: { phone: string; otp: string };
 }
 
 export interface TellerEnrollment {
@@ -44,7 +45,10 @@ export interface TellerConnectConfig {
   applicationId: string;
   environment?: string;
   products?: string[];
-  onSuccess: (enrollment: { accessToken: string; enrollment?: { id: string; institution?: { name: string } } }) => void;
+  onSuccess: (enrollment: {
+    accessToken: string;
+    enrollment?: { id: string; institution?: { name: string } };
+  }) => void;
   onExit?: () => void;
   onInit?: () => void;
 }
@@ -87,7 +91,11 @@ export class TellerService {
     return this.api.get<unknown[]>(url);
   }
 
-  createEnrollment(accessToken: string, enrollmentId: string, institutionName?: string): Observable<TellerEnrollment> {
+  createEnrollment(
+    accessToken: string,
+    enrollmentId: string,
+    institutionName?: string
+  ): Observable<TellerEnrollment> {
     return this.api.post<TellerEnrollment>('/teller/enrollments', {
       accessToken,
       enrollmentId,
@@ -124,14 +132,16 @@ export class TellerService {
       });
       return;
     }
-    const instance = window.TellerConnect.setup({
+    const setupConfig: TellerConnectConfig = {
       applicationId: config.applicationId,
       environment: config.environment || 'sandbox',
       products: config.products || ['balance', 'transactions', 'verify'],
       onSuccess: config.onSuccess,
-      onExit: config.onExit,
-      onInit: config.onInit,
-    });
+      ...(typeof config.onExit === 'function' && { onExit: config.onExit }),
+      ...(typeof config.onInit === 'function' && { onInit: config.onInit }),
+    };
+
+    const instance = window.TellerConnect.setup(setupConfig);
     instance.open();
   }
 }

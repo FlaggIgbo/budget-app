@@ -16,13 +16,14 @@ exports.createEnrollment = async (req, res, next) => {
       return res.status(400).json({ error: 'accessToken and enrollmentId required' });
     }
 
+    const userId = req.user.id;
     const [enrollment] = await db.Enrollment.findOrCreate({
       where: { enrollmentId },
-      defaults: { accessToken, institutionName, userId: null },
+      defaults: { accessToken, institutionName, userId },
     });
 
     if (!enrollment.isNewRecord) {
-      await enrollment.update({ accessToken, institutionName });
+      await enrollment.update({ accessToken, institutionName, userId });
     }
 
     res.status(201).json({
@@ -41,7 +42,9 @@ exports.createEnrollment = async (req, res, next) => {
  */
 exports.listEnrollments = async (req, res, next) => {
   try {
+    const where = { userId: req.user.id };
     const enrollments = await db.Enrollment.findAll({
+      where,
       attributes: ['id', 'enrollmentId', 'institutionName', 'createdAt'],
       order: [['createdAt', 'DESC']],
     });
@@ -53,18 +56,40 @@ exports.listEnrollments = async (req, res, next) => {
 
 /**
  * Get accounts for an enrollment.
+ * Fetches from Teller, syncs to our DB (phone -> account info), returns accounts.
  * GET /api/teller/enrollments/:enrollmentId/accounts
  */
 exports.getAccounts = async (req, res, next) => {
   try {
     const enrollment = await db.Enrollment.findOne({
-      where: { enrollmentId: req.params.enrollmentId },
+      where: { enrollmentId: req.params.enrollmentId, userId: req.user.id },
     });
     if (!enrollment) {
       return res.status(404).json({ error: 'Enrollment not found' });
     }
 
     const accounts = await tellerService.getAccounts(enrollment.accessToken);
+    const institutionName = enrollment.institutionName || null;
+
+    // Sync to our DB: user (phone) -> account info
+    for (const a of accounts) {
+      await db.Account.upsert(
+        {
+          accountId: a.id,
+          enrollmentId: enrollment.enrollmentId,
+          userId: req.user.id,
+          name: a.name,
+          lastFour: a.last_four,
+          type: a.type,
+          subtype: a.subtype,
+          institutionName: institutionName || a.institution?.name,
+        },
+        {
+          conflictFields: ['accountId'],
+        }
+      );
+    }
+
     res.json(accounts);
   } catch (err) {
     next(err);
@@ -83,7 +108,9 @@ exports.getBalances = async (req, res, next) => {
       return res.status(400).json({ error: 'enrollmentId query param required' });
     }
 
-    const enrollment = await db.Enrollment.findOne({ where: { enrollmentId } });
+    const enrollment = await db.Enrollment.findOne({
+      where: { enrollmentId, userId: req.user.id },
+    });
     if (!enrollment) {
       return res.status(404).json({ error: 'Enrollment not found' });
     }
@@ -107,7 +134,9 @@ exports.getTransactions = async (req, res, next) => {
       return res.status(400).json({ error: 'enrollmentId query param required' });
     }
 
-    const enrollment = await db.Enrollment.findOne({ where: { enrollmentId } });
+    const enrollment = await db.Enrollment.findOne({
+      where: { enrollmentId, userId: req.user.id },
+    });
     if (!enrollment) {
       return res.status(404).json({ error: 'Enrollment not found' });
     }
@@ -130,18 +159,22 @@ exports.getTransactions = async (req, res, next) => {
 
 /**
  * Delete an enrollment (disconnect bank).
+ * Removes from Teller, deletes our DB entries (enrollment + cached accounts).
  * DELETE /api/teller/enrollments/:enrollmentId
  */
 exports.deleteEnrollment = async (req, res, next) => {
   try {
     const enrollment = await db.Enrollment.findOne({
-      where: { enrollmentId: req.params.enrollmentId },
+      where: { enrollmentId: req.params.enrollmentId, userId: req.user.id },
     });
     if (!enrollment) {
       return res.status(404).json({ error: 'Enrollment not found' });
     }
 
     await tellerService.deleteEnrollment(enrollment.accessToken);
+    await db.Account.destroy({
+      where: { enrollmentId: enrollment.enrollmentId, userId: req.user.id },
+    });
     await enrollment.destroy();
     res.status(204).send();
   } catch (err) {
