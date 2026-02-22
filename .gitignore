@@ -31,3 +31,7 @@ client/dist/
 
 # Server
 server/uploads/
+server/certs/
+
+# Internal docs (never commit)
+docs/internal/
