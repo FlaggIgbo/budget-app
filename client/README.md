@@ -29,4 +29,4 @@ For CI (headless, single run):
 ng test --no-watch --browsers=ChromeHeadless
 ```
 
-Component tests cover Login, Dashboard, and Bank Accounts pages.
+Component tests cover Login, Dashboard, Bank Accounts, and Profile pages.

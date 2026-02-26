@@ -2,18 +2,22 @@
 
 A modern financial budgeting web application designed to help users take control of their finances — tracking spending, managing subscriptions, setting savings goals, and more.
 
-## Features (Planned)
+## Features
 
-<!-- TODO: Build out the following features -->
+- **Net Worth Overview** — Total assets minus liabilities across linked accounts (Teller.io)
+- **Account Linking** — Connect bank accounts via [Teller.io](https://teller.io)
+- **Profile Management** — View and update profile (skeleton; displayName/preferences planned)
+- **Phone + OTP Auth** — Session-based login with sandbox bypass for development
 
-- **Dashboard** — At-a-glance view of income, expenses, and net worth
+### Planned
+
+- **Dashboard** — Income vs. expenses, spending by category
 - **Transaction Tracking** — Automatic categorization and manual entry of transactions
 - **Budget Management** — Create and manage monthly budgets by category
 - **Subscription Tracking** — Detect and manage recurring charges
 - **Savings Goals** — Set, track, and visualize progress toward financial goals
 - **Bill Reminders** — Alerts for upcoming bills and due dates
 - **Spending Insights** — Charts and analytics to understand spending habits
-- **Account Linking** — Connect bank accounts via [Teller.io](https://teller.io)
 - **Reports & Export** — Generate financial reports and export data
 
 ## Tech Stack
@@ -25,7 +29,7 @@ A modern financial budgeting web application designed to help users take control
 - **Angular** — SPA frontend
 - **Node.js** — Runtime
 
-Additional: Sequelize ORM, JWT auth (planned), Docker for local Postgres
+Additional: Sequelize ORM, phone+OTP auth (sessions), Teller.io for bank linking, Docker for local Postgres
 
 ## Project Structure
 
@@ -33,7 +37,7 @@ Additional: Sequelize ORM, JWT auth (planned), Docker for local Postgres
 budget-app/
 ├── client/                 # Angular application
 │   ├── src/app/
-│   │   ├── components/     # Login, Dashboard, Bank Accounts
+│   │   ├── components/     # Login, Dashboard, Bank Accounts, Profile
 │   │   ├── services/       # API, Auth, Teller
 │   │   └── guards/
 │   └── package.json
