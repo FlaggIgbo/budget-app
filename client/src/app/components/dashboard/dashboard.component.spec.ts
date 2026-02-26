@@ -4,6 +4,7 @@ import { of } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
+import { TellerService } from '../../services/teller.service';
 
 describe('DashboardComponent', () => {
   let component: DashboardComponent;
@@ -16,6 +17,13 @@ describe('DashboardComponent', () => {
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ status: 'ok' }) } },
         { provide: AuthService, useValue: { logout: () => of({ ok: true }) } },
+        {
+          provide: TellerService,
+          useValue: {
+            getNetWorth: () =>
+              of({ netWorth: 0, totalAssets: 0, totalLiabilities: 0, accounts: [] }),
+          },
+        },
       ],
     }).compileComponents();
 
