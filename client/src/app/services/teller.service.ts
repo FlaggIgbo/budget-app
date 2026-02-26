@@ -29,8 +29,24 @@ export interface TellerAccount {
 }
 
 export interface TellerBalance {
-  available?: number;
-  ledger?: number;
+  available?: number | string;
+  ledger?: number | string;
+}
+
+export interface NetWorthResponse {
+  netWorth: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  accounts: Array<{
+    id: string;
+    name: string;
+    lastFour: string;
+    type: string;
+    subtype: string;
+    institutionName: string | null;
+    balance: number;
+    isAsset: boolean;
+  }>;
 }
 
 declare global {
@@ -63,6 +79,10 @@ export class TellerService {
 
   getConfig(): Observable<TellerConfig> {
     return this.api.get<TellerConfig>('/config');
+  }
+
+  getNetWorth(): Observable<NetWorthResponse> {
+    return this.api.get<NetWorthResponse>('/teller/net-worth');
   }
 
   listEnrollments(): Observable<TellerEnrollment[]> {

@@ -158,6 +158,66 @@ exports.getTransactions = async (req, res, next) => {
 };
 
 /**
+ * Get net worth overview across all linked accounts.
+ * Aggregates assets (deposit: checking, savings) and liabilities (credit: credit card, line of credit).
+ * GET /api/teller/net-worth
+ */
+exports.getNetWorth = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const enrollments = await db.Enrollment.findAll({
+      where: { userId },
+      attributes: ['enrollmentId', 'accessToken', 'institutionName'],
+    });
+
+    let totalAssets = 0;
+    let totalLiabilities = 0;
+    const accounts = [];
+
+    for (const enrollment of enrollments) {
+      const accountList = await tellerService.getAccounts(enrollment.accessToken);
+      for (const a of accountList) {
+        const balances = await tellerService.getBalances(enrollment.accessToken, a.id);
+        const ledger = parseFloat(balances?.ledger ?? balances?.available ?? 0) || 0;
+        const isAsset = (a.type || '').toLowerCase() === 'deposit';
+        const isLiability = (a.type || '').toLowerCase() === 'credit';
+
+        if (isAsset) {
+          totalAssets += ledger;
+        } else if (isLiability) {
+          totalLiabilities += Math.abs(ledger);
+        } else {
+          totalAssets += Math.max(0, ledger);
+          totalLiabilities += Math.max(0, -ledger);
+        }
+
+        accounts.push({
+          id: a.id,
+          name: a.name,
+          lastFour: a.last_four,
+          type: a.type,
+          subtype: a.subtype,
+          institutionName: enrollment.institutionName || a.institution?.name,
+          balance: ledger,
+          isAsset,
+        });
+      }
+    }
+
+    const netWorth = totalAssets - totalLiabilities;
+
+    res.json({
+      netWorth,
+      totalAssets,
+      totalLiabilities,
+      accounts,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * Delete an enrollment (disconnect bank).
  * Removes from Teller, deletes our DB entries (enrollment + cached accounts).
  * DELETE /api/teller/enrollments/:enrollmentId
