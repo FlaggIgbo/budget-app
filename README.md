@@ -1,135 +1,74 @@
 # Budget App
 
-A modern financial budgeting web application designed to help users take control of their finances — tracking spending, managing subscriptions, setting savings goals, and more.
+A simple budgeting app to track your net worth, income, expenses, and linked bank accounts.
 
 ## Features
 
-- **Net Worth Overview** — Total assets minus liabilities across linked accounts (Teller.io)
-- **Account Linking** — Connect bank accounts via [Teller.io](https://teller.io)
-- **Profile Management** — View and update profile (skeleton; displayName/preferences planned)
-- **Phone + OTP Auth** — Session-based login with sandbox bypass for development
-
-### Planned
-
-- **Dashboard** — Income vs. expenses, spending by category
-- **Transaction Tracking** — Automatic categorization and manual entry of transactions
-- **Budget Management** — Create and manage monthly budgets by category
-- **Subscription Tracking** — Detect and manage recurring charges
-- **Savings Goals** — Set, track, and visualize progress toward financial goals
-- **Bill Reminders** — Alerts for upcoming bills and due dates
-- **Spending Insights** — Charts and analytics to understand spending habits
-- **Reports & Export** — Generate financial reports and export data
+- **Net Worth** — See total assets, liabilities, and overall net worth.
+- **Cash Flow** — Monthly income vs. expenses chart and quick statistics.
+- **Spending by Category** — Visual breakdown of expenses for the current month.
+- **Bank Accounts** — Link and disconnect bank accounts via Teller.io.
+- **Easy Login** — Phone number + verification code login with built-in test credentials.
 
 ## Tech Stack
 
-**PEAN Stack** — PostgreSQL, Express, Angular, Node.js
+- **Frontend**: Angular 19
+- **Backend**: Node.js + Express
+- **Database**: PostgreSQL (via Sequelize ORM)
+- **Bank Integration**: Teller.io
 
-- **PostgreSQL** — Relational database
-- **Express** — REST API backend
-- **Angular** — SPA frontend
-- **Node.js** — Runtime
+## Quick Start
 
-Additional: Sequelize ORM, phone+OTP auth (sessions), Teller.io for bank linking, Docker for local Postgres
-
-## Project Structure
-
-```
-budget-app/
-├── client/                 # Angular application
-│   ├── src/app/
-│   │   ├── components/     # Login, Dashboard, Bank Accounts, Profile
-│   │   ├── services/       # API, Auth, Teller
-│   │   └── guards/
-│   └── package.json
-├── server/                 # Node/Express API
-│   ├── controllers/
-│   ├── models/             # User, Session, Enrollment, Account
-│   ├── routes/
-│   ├── test/               # API tests
-│   └── package.json
-├── docs/internal/         # Teller setup, etc.
-├── .github/workflows/      # CI (tests on push)
-├── docker-compose.yml
-└── package.json            # Root scripts (test, etc.)
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- Docker (for PostgreSQL)
-- npm or yarn
-
-From the project root, install dependencies:
-
-```bash
-npm run install:all
-```
-
-### 1. Start PostgreSQL
+### 1. Start PostgreSQL Database
 
 ```bash
 docker compose up -d
 ```
 
-### 2. Backend (API)
+### 2. Start the Backend API
 
 ```bash
 cd server
-cp .env.example .env   # Edit if needed
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-API runs at `http://localhost:4000`
+API runs at `http://localhost:4000`.
 
-### 3. Frontend (Angular)
+### 3. Start the Frontend
 
 ```bash
 cd client
 npm install
-ng serve
+npm start
 ```
 
-App runs at `http://localhost:4200` (proxies `/api` to backend)
+App runs at `http://localhost:4200`.
 
-### 4. Login (sandbox)
+## Test Login (Sandbox)
 
-In sandbox/development, the sandbox user is auto-seeded on server startup. Sign in with:
+Use these test credentials on the login page:
 
-- **Phone:** `555-555-5555` (or `+15555555555`)
-- **OTP:** `123456`
+- **Phone**: `555-555-5555`
+- **Code**: `123456`
 
-Sessions use HTTP-only cookies. Log out via the dashboard or bank accounts page.
+## Testing & Linting
 
-## Format & Lint
+Run all checks from the root directory:
 
 ```bash
-npm run format     # Prettier
-npm run lint       # Check lint
-npm run lint:fix   # Auto-fix lint issues
+npm test        # Run server and client tests
+npm run lint    # Check code style
+npm run format  # Format files with Prettier
 ```
 
-These run automatically on commit via Husky + lint-staged.
+## TODO / Roadmap
 
-## Testing
-
-Run all tests (requires Docker for PostgreSQL):
-
-```bash
-npm test
-```
-
-Or run separately:
-
-```bash
-npm run test:server   # API tests (auth, health, config)
-npm run test:client   # Angular component tests
-```
-
-Tests run automatically on push/PR via GitHub Actions. A pre-commit hook also runs tests before each commit.
-
-## License
-
-> TBD
+- [ ] **Automated Bank-to-Budget Sync & Zero-Downtime Rule Engine**
+  - **Overview**: Ingest real bank/credit card transactions automatically, run deduplication, and classify them into budget buckets.
+  - **Daily Utility**: Connect to bank aggregation webhooks/APIs, normalize raw merchant strings (e.g., `"TST* NOMANS LIC NY"` &rarr; `"Nomans"`, `"Dining Out"`), and push structured events into the database.
+  - **System Design Concepts**:
+    - **Idempotent Write Pipeline**: Content-hash deduplication (`account_id` + `amount` + `raw_date` + `merchant_pattern`) to prevent duplicate postings from re-delivered or out-of-order webhooks.
+    - **Outbox Pattern & Async Enrichment**: Commit raw transaction payloads to an append-only log before dispatching to asynchronous categorization workers.
+    - **Dynamic Rule Engine**: Editable categorization rules (merchant matching, price thresholds, split categories) that re-evaluate transactions without service restarts.

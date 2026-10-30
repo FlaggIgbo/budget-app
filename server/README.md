@@ -1,45 +1,28 @@
 # Budget App API
 
-Node.js + Express + Sequelize + PostgreSQL REST API.
+Express + Node.js backend connecting to PostgreSQL and Teller.io.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env   # Edit TELLER_APPLICATION_ID, etc.
+cp .env.example .env
 npm run dev
 ```
 
-Requires PostgreSQL (e.g. `docker compose up -d` from project root).
+API runs on port `4000`.
 
-## Tests
+## API Endpoints
 
-```bash
-npm test
-```
-
-Requires a running PostgreSQL instance. Uses `DATABASE_URL` or `DB_*` env vars from `.env`.
-
-Tests cover:
-- **Health & Config** — `/api/health`, `/api/config`
-- **Auth** — `/api/auth/send-otp`, `/api/auth/verify-otp` (sandbox credentials)
-
-## API Overview
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/health` | GET | No | Health check |
-| `/api/config` | GET | No | Teller config (app ID, env) |
-| `/api/auth/send-otp` | POST | No | Send OTP to phone |
-| `/api/auth/verify-otp` | POST | No | Verify OTP, create session |
-| `/api/auth/logout` | POST | No | Clear session |
-| `/api/auth/me` | GET | Yes | Current user |
-| `/api/profile` | GET | Yes | User profile |
-| `/api/profile` | PATCH | Yes | Update profile |
-| `/api/teller/net-worth` | GET | Yes | Net worth across linked accounts |
-| `/api/teller/enrollments` | GET | Yes | List enrollments |
-| `/api/teller/enrollments` | POST | Yes | Create enrollment (Teller Connect) |
-| `/api/teller/enrollments/:id/accounts` | GET | Yes | Get accounts for enrollment |
-| `/api/teller/accounts/:id/balances` | GET | Yes | Get account balances |
-| `/api/teller/accounts/:id/transactions` | GET | Yes | Get transactions |
-| `/api/teller/enrollments/:id` | DELETE | Yes | Disconnect enrollment |
+- `GET /api/health` — Check server status
+- `GET /api/config` — Get Teller settings
+- `POST /api/auth/send-otp` — Send login code
+- `POST /api/auth/verify-otp` — Verify code and log in
+- `POST /api/auth/logout` — Log out
+- `GET /api/auth/me` — Get current user
+- `GET /api/profile` — Get profile info
+- `GET /api/teller/net-worth` — Calculate net worth
+- `GET /api/teller/dashboard-summary` — Get monthly summary & stats
+- `GET /api/teller/enrollments` — List connected banks
+- `POST /api/teller/enrollments` — Save bank connection
+- `DELETE /api/teller/enrollments/:id` — Disconnect bank

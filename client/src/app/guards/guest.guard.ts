@@ -3,17 +3,26 @@ import { Router } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { map } from 'rxjs';
 
-/** Redirect to dashboard if already logged in. */
+// If user is already logged in, redirect to dashboard
 export const guestGuard = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
-  if (auth.loaded() && auth.isLoggedIn()) {
-    return router.createUrlTree(['/dashboard']);
+  // If already checked session
+  if (auth.loaded()) {
+    if (auth.isLoggedIn()) {
+      return router.createUrlTree(['/dashboard']);
+    }
+    return true;
   }
-  if (auth.loaded()) return true;
 
-  return auth
-    .checkSession()
-    .pipe(map((user) => (user ? router.createUrlTree(['/dashboard']) : true)));
+  // Check session from server
+  return auth.checkSession().pipe(
+    map((user) => {
+      if (user) {
+        return router.createUrlTree(['/dashboard']);
+      }
+      return true;
+    })
+  );
 };

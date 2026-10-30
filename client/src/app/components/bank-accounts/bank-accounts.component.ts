@@ -21,17 +21,17 @@ import { AuthService } from '../../services/auth.service';
           <button class="btn-logout" (click)="logout()">Log out</button>
         </div>
         <h1>Bank Accounts</h1>
-        <p class="subtitle">Connect your bank to sync transactions and balances</p>
+        <p class="subtitle">Connect your bank or credit card to sync transactions and balances</p>
       </header>
 
       @if (config(); as cfg) {
         @if (!cfg.tellerApplicationId) {
           <div class="alert">
-            Teller is not configured. Add TELLER_APPLICATION_ID to your API server environment.
+            Teller is not configured. Add TELLER_APPLICATION_ID to your server environment.
           </div>
         } @else {
           <button class="btn-connect" (click)="connectBank()" [disabled]="connecting()">
-            {{ connecting() ? 'Connecting…' : '+ Connect bank account' }}
+            {{ connecting() ? 'Connecting…' : '+ Connect bank or credit card' }}
           </button>
         }
       }
@@ -41,33 +41,36 @@ import { AuthService } from '../../services/auth.service';
       }
 
       <section class="enrollments">
-        <h2>Connected banks</h2>
+        <h2>Connected accounts</h2>
         @if (enrollments().length === 0) {
-          <p class="empty">No banks connected yet. Click above to connect.</p>
+          <p class="empty">No accounts connected yet. Connect your bank or credit card above.</p>
         } @else {
           @for (e of enrollments(); track e.enrollmentId) {
             <div class="enrollment-card">
               <div class="enrollment-header">
-                <span class="institution">{{ e.institutionName || 'Bank' }}</span>
+                <span class="institution">{{ e.institutionName || 'Bank Account' }}</span>
                 <button
                   class="btn-disconnect"
                   (click)="disconnect(e.enrollmentId)"
                   [disabled]="disconnecting() === e.enrollmentId"
                 >
-                  Disconnect
+                  {{ disconnecting() === e.enrollmentId ? 'Disconnecting…' : 'Disconnect' }}
                 </button>
               </div>
-              @if (accountsByEnrollment()[e.enrollmentId]; as accounts) {
-                <ul class="accounts">
-                  @for (a of accounts; track a.id) {
-                    <li class="account">
-                      <span class="name">{{ a.name }}</span>
-                      <span class="meta">•••• {{ a.last_four }} · {{ a.subtype }}</span>
-                    </li>
-                  }
-                </ul>
-              } @else if (loadingAccounts().has(e.enrollmentId)) {
+
+              @if (loadingAccounts().has(e.enrollmentId)) {
                 <p class="loading">Loading accounts…</p>
+              } @else {
+                @if (accountsByEnrollment()[e.enrollmentId]; as accounts) {
+                  <ul class="accounts">
+                    @for (a of accounts; track a.id) {
+                      <li class="account">
+                        <span class="name">{{ a.name }}</span>
+                        <span class="meta">· ···{{ a.last_four }} ({{ a.type }})</span>
+                      </li>
+                    }
+                  </ul>
+                }
               }
             </div>
           }
@@ -80,7 +83,7 @@ import { AuthService } from '../../services/auth.service';
       .bank-accounts {
         padding: 2rem;
         font-family: system-ui, sans-serif;
-        max-width: 640px;
+        max-width: 600px;
         margin: 0 auto;
       }
       .header-row {
@@ -93,7 +96,6 @@ import { AuthService } from '../../services/auth.service';
         color: #64748b;
         text-decoration: none;
         font-size: 0.9rem;
-        display: inline-block;
       }
       .back:hover {
         color: #0f172a;
@@ -124,9 +126,9 @@ import { AuthService } from '../../services/auth.service';
         background: #0f172a;
         color: white;
         border: none;
-        padding: 0.75rem 1.25rem;
+        padding: 0.6rem 1.2rem;
         border-radius: 8px;
-        font-size: 1rem;
+        font-size: 0.95rem;
         cursor: pointer;
         margin-bottom: 2rem;
       }
@@ -139,9 +141,10 @@ import { AuthService } from '../../services/auth.service';
       }
       .alert,
       .error {
-        padding: 1rem;
+        padding: 0.75rem 1rem;
         border-radius: 8px;
-        margin-bottom: 1rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
       }
       .alert {
         background: #fef3c7;
@@ -228,25 +231,36 @@ export class BankAccountsComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    // 1. Get Teller config
     this.teller.getConfig().subscribe({
       next: (c) => this.config.set(c),
       error: () => this.config.set({ tellerApplicationId: '', tellerEnvironment: 'sandbox' }),
     });
+
+    // 2. Load connected banks
     this.loadEnrollments();
   }
 
+  // Load user's connected bank list
   loadEnrollments() {
     this.teller.listEnrollments().subscribe({
       next: (list) => {
         this.enrollments.set(list);
-        list.forEach((e) => this.loadAccounts(e.enrollmentId));
+        for (const enrollment of list) {
+          this.loadAccounts(enrollment.enrollmentId);
+        }
       },
-      error: (err) => this.error.set(err?.error?.error || 'Failed to load enrollments'),
+      error: (err) => {
+        const message = err?.error?.error || 'Failed to load accounts';
+        this.error.set(message);
+      },
     });
   }
 
+  // Load individual accounts for a connected bank
   loadAccounts(enrollmentId: string) {
     this.loadingAccounts.update((s) => new Set(s).add(enrollmentId));
+
     this.teller.getAccounts(enrollmentId).subscribe({
       next: (accounts) => {
         this.accountsByEnrollment.update((m) => ({ ...m, [enrollmentId]: accounts }));
@@ -266,9 +280,12 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
+  // Open Teller popup to connect a new bank
   connectBank() {
     const cfg = this.config();
-    if (!cfg?.tellerApplicationId) return;
+    if (!cfg || !cfg.tellerApplicationId) {
+      return;
+    }
 
     this.connecting.set(true);
     this.error.set(null);
@@ -277,43 +294,51 @@ export class BankAccountsComponent implements OnInit {
       applicationId: cfg.tellerApplicationId,
       environment: cfg.tellerEnvironment || 'sandbox',
       onSuccess: (enrollment) => {
-        this.teller
-          .createEnrollment(
-            enrollment.accessToken,
-            enrollment.enrollment?.id ?? '',
-            enrollment.enrollment?.institution?.name
-          )
-          .subscribe({
-            next: () => {
-              this.loadEnrollments();
-              this.connecting.set(false);
-            },
-            error: (err) => {
-              this.error.set(err?.error?.error || 'Failed to save enrollment');
-              this.connecting.set(false);
-            },
-          });
+        const token = enrollment.accessToken;
+        const id = enrollment.enrollment?.id || '';
+        const name = enrollment.enrollment?.institution?.name;
+
+        // Save connection to backend
+        this.teller.createEnrollment(token, id, name).subscribe({
+          next: () => {
+            this.loadEnrollments();
+            this.connecting.set(false);
+          },
+          error: (err) => {
+            const message = err?.error?.error || 'Failed to save account';
+            this.error.set(message);
+            this.connecting.set(false);
+          },
+        });
       },
-      onExit: () => this.connecting.set(false),
+      onExit: () => {
+        this.connecting.set(false);
+      },
     });
   }
 
-  logout() {
-    this.auth.logout().subscribe({
-      next: () => window.location.assign('/login'),
-    });
-  }
-
+  // Disconnect bank
   disconnect(enrollmentId: string) {
     this.disconnecting.set(enrollmentId);
+
     this.teller.deleteEnrollment(enrollmentId).subscribe({
       next: () => {
         this.loadEnrollments();
         this.disconnecting.set(null);
       },
       error: (err) => {
-        this.error.set(err?.error?.error || 'Failed to disconnect');
+        const message = err?.error?.error || 'Failed to disconnect account';
+        this.error.set(message);
         this.disconnecting.set(null);
+      },
+    });
+  }
+
+  // Log user out
+  logout() {
+    this.auth.logout().subscribe({
+      next: () => {
+        window.location.assign('/login');
       },
     });
   }

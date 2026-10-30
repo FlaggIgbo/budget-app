@@ -21,7 +21,28 @@ describe('DashboardComponent', () => {
           provide: TellerService,
           useValue: {
             getNetWorth: () =>
-              of({ netWorth: 0, totalAssets: 0, totalLiabilities: 0, accounts: [] }),
+              of({
+                netWorth: 1000,
+                totalAssets: 1500,
+                totalLiabilities: 500,
+                accounts: [],
+              }),
+            getDashboardSummary: () =>
+              of({
+                incomeVsExpenses: [],
+                spendingByCategory: [],
+                recentTransactions: [],
+                quickStats: {
+                  thisMonthIncome: 0,
+                  thisMonthExpenses: 0,
+                  lastMonthIncome: 0,
+                  lastMonthExpenses: 0,
+                  ytdIncome: 0,
+                  ytdExpenses: 0,
+                  momIncomeChangePct: 0,
+                  momExpensesChangePct: 0,
+                },
+              }),
           },
         },
       ],
@@ -45,7 +66,7 @@ describe('DashboardComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const link = compiled.querySelector('a[routerLink="/accounts"]');
     expect(link).toBeTruthy();
-    expect(link?.textContent).toContain('Connect bank account');
+    expect(link?.textContent).toContain('Connect bank or credit card');
   });
 
   it('should render logout button', () => {

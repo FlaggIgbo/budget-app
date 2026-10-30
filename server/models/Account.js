@@ -1,11 +1,7 @@
-/**
- * Account model - caches Teller account info per user (phone).
- * Key: user (via userId) + enrollmentId + accountId.
- * Deleted when user disconnects enrollment.
- */
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
+  // Account table stores cached bank account info
   const Account = sequelize.define(
     'Account',
     {

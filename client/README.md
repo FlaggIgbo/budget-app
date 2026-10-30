@@ -1,32 +1,18 @@
 # Budget App Client
 
-Angular 19 frontend for the Budget App. Connects to the Node/Express API via proxy in development.
+Angular 19 frontend for the Budget App.
 
-## Development
+## Setup
 
 ```bash
 npm install
-ng serve
+npm start
 ```
 
-Open `http://localhost:4200`. The app proxies `/api` to the backend.
+App runs at `http://localhost:4200` and proxies `/api` calls to `http://localhost:4000`.
 
-## Build
+## Testing
 
 ```bash
-ng build
+npm test
 ```
-
-## Tests
-
-```bash
-ng test
-```
-
-For CI (headless, single run):
-
-```bash
-ng test --no-watch --browsers=ChromeHeadless
-```
-
-Component tests cover Login, Dashboard, Bank Accounts, and Profile pages.

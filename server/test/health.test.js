@@ -1,6 +1,4 @@
-/**
- * Health and config API tests.
- */
+// Health and config API tests
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');

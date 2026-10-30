@@ -1,15 +1,15 @@
-/**
- * User model - phone number as unique identifier.
- * Used for OTP-based login flow.
- */
 const { DataTypes } = require('sequelize');
 
+// Keep only digits in phone number
 function normalizePhone(phone) {
-  if (!phone || typeof phone !== 'string') return null;
+  if (!phone || typeof phone !== 'string') {
+    return null;
+  }
   return phone.replace(/\D/g, '');
 }
 
 module.exports = (sequelize) => {
+  // User table stores phone numbers
   const User = sequelize.define(
     'User',
     {
@@ -32,9 +32,11 @@ module.exports = (sequelize) => {
   );
 
   User.normalizePhone = normalizePhone;
+
+  // Check if phone is test phone
   User.isSandboxPhone = (phone) => {
-    const normalized = normalizePhone(phone);
-    return normalized === '1555555555' || normalized === '5555555555';
+    const cleanPhone = normalizePhone(phone);
+    return cleanPhone === '1555555555' || cleanPhone === '5555555555';
   };
 
   return User;

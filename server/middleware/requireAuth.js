@@ -1,17 +1,15 @@
-/**
- * Require auth middleware - validates session cookie and sets req.user.
- */
 const db = require('../models');
 
-const COOKIE_NAME = 'session';
-
+// Check that the user is logged in
 module.exports = async (req, res, next) => {
-  const token = req.cookies?.[COOKIE_NAME];
+  // 1. Get session token from cookie
+  const token = req.cookies?.session;
   if (!token) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
   try {
+    // 2. Find session in database
     const session = await db.Session.findOne({
       where: { token },
       include: [{ model: db.User, attributes: ['id', 'phone'] }],
@@ -21,11 +19,14 @@ module.exports = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid session' });
     }
 
-    if (new Date() > session.expiresAt) {
+    // 3. Check if session expired
+    const now = new Date();
+    if (now > session.expiresAt) {
       await session.destroy();
       return res.status(401).json({ error: 'Session expired' });
     }
 
+    // 4. Attach user to request
     req.user = session.User;
     req.session = session;
     next();

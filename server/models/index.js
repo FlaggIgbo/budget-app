@@ -1,50 +1,49 @@
-/**
- * Sequelize models index - initializes DB connection and exports all models.
- * Supports DATABASE_URL (Neon, Supabase) or individual vars (local Docker).
- */
 const { Sequelize } = require('sequelize');
 const dbConfig = require('../config/db.config');
 
-const useSsl =
+// Connect to database
+const isRemoteUrl =
   process.env.DATABASE_URL &&
   !process.env.DATABASE_URL.includes('localhost') &&
   !process.env.DATABASE_URL.includes('127.0.0.1');
 
-const sequelize = process.env.DATABASE_URL
-  ? new Sequelize(process.env.DATABASE_URL, {
-      dialect: 'postgres',
-      dialectOptions: useSsl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
-      pool: dbConfig.pool,
-    })
-  : new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
-      host: dbConfig.HOST,
-      port: dbConfig.PORT,
-      dialect: dbConfig.dialect,
-      pool: dbConfig.pool,
-    });
+let sequelize;
+if (process.env.DATABASE_URL) {
+  // Use connection string if provided
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
+    dialect: 'postgres',
+    dialectOptions: isRemoteUrl ? { ssl: { require: true, rejectUnauthorized: false } } : {},
+    pool: dbConfig.pool,
+  });
+} else {
+  // Use separate config values for local Postgres
+  sequelize = new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
+    host: dbConfig.HOST,
+    port: dbConfig.PORT,
+    dialect: dbConfig.dialect,
+    pool: dbConfig.pool,
+  });
+}
 
 const db = {
   sequelize,
   Sequelize,
 };
 
-// Register models
-const User = require('./User')(sequelize);
-const Session = require('./Session')(sequelize);
-const Enrollment = require('./Enrollment')(sequelize);
-const Account = require('./Account')(sequelize);
+// Load models
+db.User = require('./User')(sequelize);
+db.Session = require('./Session')(sequelize);
+db.Enrollment = require('./Enrollment')(sequelize);
+db.Account = require('./Account')(sequelize);
 
-db.User = User;
-db.Session = Session;
-db.Enrollment = Enrollment;
-db.Account = Account;
+// Link models together
+db.User.hasMany(db.Session, { foreignKey: 'userId' });
+db.Session.belongsTo(db.User, { foreignKey: 'userId' });
 
-// Associations: User (phone) -> Enrollments, Accounts
-User.hasMany(Session, { foreignKey: 'userId' });
-Session.belongsTo(User, { foreignKey: 'userId' });
-User.hasMany(Enrollment, { foreignKey: 'userId' });
-Enrollment.belongsTo(User, { foreignKey: 'userId' });
-User.hasMany(Account, { foreignKey: 'userId' });
-Account.belongsTo(User, { foreignKey: 'userId' });
+db.User.hasMany(db.Enrollment, { foreignKey: 'userId' });
+db.Enrollment.belongsTo(db.User, { foreignKey: 'userId' });
+
+db.User.hasMany(db.Account, { foreignKey: 'userId' });
+db.Account.belongsTo(db.User, { foreignKey: 'userId' });
 
 module.exports = db;

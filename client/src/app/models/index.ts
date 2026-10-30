@@ -1,9 +1,15 @@
-/**
- * Shared models/interfaces for the Budget App.
- * Add TypeScript interfaces here as backend entities are defined.
- */
+// User model
+export interface User {
+  id: string;
+  phone: string;
+}
 
-// Placeholder - add models as features are built
-// export interface User { ... }
-// export interface Transaction { ... }
-// export interface Budget { ... }
+// Bank account model
+export interface BankAccount {
+  id: string;
+  name: string;
+  lastFour: string;
+  balance: number;
+  isAsset: boolean;
+  institutionName?: string | null;
+}

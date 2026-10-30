@@ -1,7 +1,4 @@
-/**
- * Database configuration for Sequelize + PostgreSQL.
- * Uses environment variables for flexibility (Docker, different environments).
- */
+// Database settings for PostgreSQL
 module.exports = {
   HOST: process.env.DB_HOST || 'localhost',
   PORT: process.env.DB_PORT || 5432,

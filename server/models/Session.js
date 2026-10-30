@@ -1,22 +1,20 @@
-/**
- * Session model - stores login sessions for cookie-based auth.
- */
 const { DataTypes } = require('sequelize');
 const crypto = require('crypto');
 
-const SESSION_DAYS = 7;
-
+// Create random session token
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+// Session expires in 7 days
 function expiresAt() {
-  const d = new Date();
-  d.setDate(d.getDate() + SESSION_DAYS);
-  return d;
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date;
 }
 
 module.exports = (sequelize) => {
+  // Session table stores login tokens
   const Session = sequelize.define(
     'Session',
     {

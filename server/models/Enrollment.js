@@ -1,10 +1,7 @@
-/**
- * Enrollment model - stores Teller access tokens.
- * Key: user (phone) -> enrollment. userId required; always linked to User.
- */
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
+  // Enrollment table stores connected bank credentials from Teller
   const Enrollment = sequelize.define(
     'Enrollment',
     {
@@ -41,5 +38,6 @@ module.exports = (sequelize) => {
       indexes: [{ fields: ['enrollment_id'] }, { fields: ['user_id'] }],
     }
   );
+
   return Enrollment;
 };

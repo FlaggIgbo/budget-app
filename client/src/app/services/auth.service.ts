@@ -7,6 +7,7 @@ export interface User {
   phone: string;
 }
 
+// Service to manage login status and user session
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private userSignal = signal<User | null>(null);
@@ -18,7 +19,7 @@ export class AuthService {
 
   constructor(private api: ApiService) {}
 
-  /** Check session on app init. */
+  // Check if user is currently logged in
   checkSession(): Observable<User | null> {
     return this.api.get<{ user: User }>('/auth/me').pipe(
       tap((res) => {
@@ -34,10 +35,12 @@ export class AuthService {
     );
   }
 
+  // Send verification code to phone
   sendOtp(phone: string): Observable<{ ok: boolean; message?: string }> {
     return this.api.post<{ ok: boolean; message?: string }>('/auth/send-otp', { phone });
   }
 
+  // Verify code and log user in
   verifyOtp(phone: string, otp: string): Observable<{ ok: boolean; user: User }> {
     return this.api.post<{ ok: boolean; user: User }>('/auth/verify-otp', { phone, otp }).pipe(
       tap((res) => {
@@ -48,6 +51,7 @@ export class AuthService {
     );
   }
 
+  // Log user out
   logout(): Observable<{ ok: boolean }> {
     return this.api
       .post<{ ok: boolean }>('/auth/logout', {})

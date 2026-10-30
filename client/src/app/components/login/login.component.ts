@@ -17,9 +17,9 @@ import { TellerService } from '../../services/teller.service';
 
         @if (sandbox(); as creds) {
           <div class="sandbox-banner">
-            <strong>Sandbox credentials</strong>
+            <strong>Sandbox test credentials</strong>
             <p>
-              Phone: <code>{{ creds.phone }}</code> · OTP: <code>{{ creds.otp }}</code>
+              Phone: <code>{{ creds.phone }}</code> · Code: <code>{{ creds.otp }}</code>
             </p>
           </div>
         }
@@ -62,8 +62,8 @@ import { TellerService } from '../../services/teller.service';
           </form>
         }
 
-        @if (error()) {
-          <p class="error">{{ error() }}</p>
+        @if (error(); as err) {
+          <p class="error">{{ err }}</p>
         }
       </div>
     </div>
@@ -75,17 +75,17 @@ import { TellerService } from '../../services/teller.service';
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 2rem;
+        padding: 1.5rem;
+        background: #f8fafc;
         font-family: system-ui, sans-serif;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
       }
       .card {
         background: white;
-        border-radius: 16px;
         padding: 2.5rem;
-        max-width: 360px;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         width: 100%;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        max-width: 400px;
       }
       h1 {
         margin: 0 0 0.25rem;
@@ -97,51 +97,52 @@ import { TellerService } from '../../services/teller.service';
         margin: 0 0 1.5rem;
         font-size: 0.95rem;
       }
+      .sandbox-banner {
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.85rem;
+        color: #475569;
+      }
+      .sandbox-banner strong {
+        color: #0f172a;
+      }
+      .sandbox-banner p {
+        margin: 0.25rem 0 0;
+      }
+      .sandbox-banner code {
+        background: #e2e8f0;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
       .form {
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
+        gap: 1rem;
       }
       label {
-        font-weight: 500;
         font-size: 0.9rem;
+        font-weight: 500;
         color: #334155;
       }
       input {
         padding: 0.75rem 1rem;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #cbd5e1;
         border-radius: 8px;
         font-size: 1rem;
       }
       input:focus {
         outline: none;
         border-color: #0f172a;
-        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
-      }
-      .sandbox-banner {
-        background: #fef3c7;
-        border: 1px solid #fcd34d;
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-        margin-bottom: 1.25rem;
-        font-size: 0.9rem;
-      }
-      .sandbox-banner strong {
-        display: block;
-        color: #92400e;
-        margin-bottom: 0.25rem;
-      }
-      .sandbox-banner code {
-        background: rgba(0, 0, 0, 0.06);
-        padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        font-family: ui-monospace, monospace;
       }
       .btn {
         background: #0f172a;
         color: white;
         border: none;
-        padding: 0.75rem 1.25rem;
+        padding: 0.75rem 1rem;
         border-radius: 8px;
         font-size: 1rem;
         font-weight: 500;
@@ -188,47 +189,60 @@ export class LoginComponent implements OnInit {
     private router: Router
   ) {}
 
-  /** Format as XXX-XXX-XXXX, max 10 digits. */
+  // Format phone number string into XXX-XXX-XXXX format
   formatPhone(value: string): string {
     const digits = value.replace(/\D/g, '').slice(0, 10);
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    if (digits.length <= 3) {
+      return digits;
+    }
+    if (digits.length <= 6) {
+      return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    }
     return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
 
   ngOnInit() {
+    // Check if server provides sandbox test credentials
     this.teller.getConfig().subscribe({
       next: (cfg) => {
-        if (cfg.authSandbox) this.sandbox.set(cfg.authSandbox);
+        if (cfg.authSandbox) {
+          this.sandbox.set(cfg.authSandbox);
+        }
       },
     });
   }
 
+  // Send verification code
   sendOtp() {
     this.error.set(null);
     this.loading.set(true);
+
     this.auth.sendOtp(this.phone).subscribe({
       next: () => {
         this.step.set('otp');
         this.loading.set(false);
       },
       error: (err) => {
-        this.error.set(err?.error?.error || 'Failed to send code');
+        const message = err?.error?.error || 'Failed to send code';
+        this.error.set(message);
         this.loading.set(false);
       },
     });
   }
 
+  // Verify code and navigate to dashboard
   verifyOtp() {
     this.error.set(null);
     this.loading.set(true);
+
     this.auth.verifyOtp(this.phone, this.otp).subscribe({
       next: () => {
         this.loading.set(false);
         this.router.navigate(['/dashboard']);
       },
       error: (err) => {
-        this.error.set(err?.error?.error || 'Invalid code');
+        const message = err?.error?.error || 'Invalid code';
+        this.error.set(message);
         this.loading.set(false);
       },
     });

@@ -1,7 +1,4 @@
-/**
- * Auth API tests.
- * Run with: npm test (requires DB for full suite)
- */
+// Auth API tests
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
@@ -57,7 +54,10 @@ describe('Auth API', () => {
       assert.ok(res.body.user?.phone);
       const setCookie = res.headers['set-cookie'];
       const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
-      assert.ok(cookies.some((c) => c.includes('session')), 'expected session cookie');
+      assert.ok(
+        cookies.some((c) => c.includes('session')),
+        'expected session cookie'
+      );
     });
   });
 });
