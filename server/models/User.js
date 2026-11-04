@@ -59,10 +59,5 @@ module.exports = (sequelize) => {
   User.normalizeEmail = normalizeEmail;
   User.isValidEmail = isValidEmail;
 
-  // Check if email is the sandbox dummy email
-  User.isSandboxEmail = (email) => {
-    return normalizeEmail(email) === 'test@example.com';
-  };
-
   return User;
 };

@@ -1,7 +1,8 @@
-// Bank service and API tests (encryption, transaction persistence, net worth, dashboard insights)
+// Bank service and API tests (Secrets Vault encryption, Sync Worker, Disconnect Handler, Net Worth, Dashboard Insights)
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
 const bankService = require('../services/bank.service');
+const bankAdapter = require('../services/teller.adapter');
 
 describe('Bank Service & Encryption', () => {
   let db;
@@ -9,12 +10,13 @@ describe('Bank Service & Encryption', () => {
 
   before(async () => {
     process.env.NODE_ENV = 'test';
+    bankAdapter.deleteEnrollment = async () => true;
     db = require('../models');
     await db.sequelize.sync({ force: true });
     testUser = await db.User.create({ email: 'bankuser@example.com' });
   });
 
-  it('encrypts and decrypts bank access tokens at rest', () => {
+  it('encrypts and decrypts bank access tokens at rest in Secrets Vault', () => {
     const rawToken = 'token_sandbox_secret_123';
     const encrypted = bankService.encryptToken(rawToken);
     assert.notStrictEqual(encrypted, rawToken);
@@ -25,6 +27,14 @@ describe('Bank Service & Encryption', () => {
   });
 
   it('calculates net worth from persisted Account records without live API calls', async () => {
+    await db.Enrollment.create({
+      enrollmentId: 'enr_1',
+      accessToken: bankService.encryptToken('token_1'),
+      institutionName: 'Chase',
+      syncCursor: 'txn_expense_1',
+      userId: testUser.id,
+    });
+
     await db.Account.create({
       accountId: 'acc_checking_1',
       enrollmentId: 'enr_1',
@@ -35,6 +45,7 @@ describe('Bank Service & Encryption', () => {
       subtype: 'checking',
       institutionName: 'Chase',
       balance: 2500.5,
+      syncCursor: 'txn_expense_1',
     });
 
     await db.Account.create({
@@ -56,7 +67,7 @@ describe('Bank Service & Encryption', () => {
     assert.strictEqual(result.accounts.length, 2);
   });
 
-  it('computes dashboard summary from persisted Transaction records', async () => {
+  it('computes dashboard summary and filters transactions per institution', async () => {
     const currentMonth = new Date().toISOString().slice(0, 7);
 
     await db.Transaction.create({
@@ -92,5 +103,20 @@ describe('Bank Service & Encryption', () => {
     assert.strictEqual(summary.spendingByCategory[0].category, 'Groceries');
     assert.strictEqual(summary.spendingByCategory[0].amount, 150.75);
     assert.strictEqual(summary.recentTransactions.length, 2);
+
+    const chaseTxns = await bankService.listStoredTransactions(testUser.id, {
+      institutionName: 'Chase',
+    });
+    assert.strictEqual(chaseTxns.length, 2);
+  });
+
+  it('disconnects an institution and cascade deletes its accounts and transactions', async () => {
+    const deleted = await bankService.deleteEnrollment(testUser.id, 'enr_1');
+    assert.strictEqual(deleted, true);
+
+    const remainingAccounts = await bankService.listStoredAccounts(testUser.id);
+    const remainingTxns = await bankService.listStoredTransactions(testUser.id);
+    assert.strictEqual(remainingAccounts.length, 0);
+    assert.strictEqual(remainingTxns.length, 0);
   });
 });

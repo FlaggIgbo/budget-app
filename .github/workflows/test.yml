@@ -54,3 +54,6 @@ jobs:
 
       - name: Run client tests
         run: cd client && npm test -- --no-watch --browsers=ChromeHeadless
+
+      - name: Build client
+        run: cd client && npm run build

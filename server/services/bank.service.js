@@ -1,170 +1,202 @@
-const crypto = require('crypto');
 const db = require('../models');
 const bankAdapter = require('./teller.adapter');
+const secretsVault = require('./secrets.vault');
+const syncWorker = require('./sync.worker');
+const disconnectHandler = require('./disconnect.handler');
+
+// ============================================================================
+// BANK SERVICE (API SERVER BUSINESS LOGIC)
+// Coordinates the Secrets Vault, Sync Worker, Disconnect Handler, and App DB.
+// Written with simple loops and step-by-step logic.
+// ============================================================================
 
 // Round a number to 2 decimal places (cents)
 function roundToCents(amount) {
   return Math.round(amount * 100) / 100;
 }
 
-// Build a 32-byte key for AES-256 encryption of bank access tokens at rest
-function getEncryptionKey() {
-  const rawSecret = process.env.TOKEN_ENCRYPTION_KEY || 'budget-app-default-encryption-key';
-  return crypto.createHash('sha256').update(rawSecret).digest();
+// Get Teller Connect UI configuration (equivalent to POST /link-token)
+function getConnectConfig() {
+  return bankAdapter.getConnectConfig();
 }
 
-// Encrypt bank access token before saving to database
-function encryptToken(plainToken) {
-  if (!plainToken) return '';
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', getEncryptionKey(), iv);
-  let encrypted = cipher.update(plainToken, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
-}
-
-// Decrypt bank access token when reading from database
-function decryptToken(storedToken) {
-  if (!storedToken || !storedToken.includes(':')) {
-    // Fallback for plain tokens saved before encryption was added
-    return storedToken;
-  }
-
-  try {
-    const parts = storedToken.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const encryptedText = parts[1];
-    const decipher = crypto.createDecipheriv('aes-256-cbc', getEncryptionKey(), iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    return storedToken;
-  }
-}
-
-// Sync accounts, balances, and recent transactions for one enrollment into PostgreSQL
-async function syncEnrollmentData(enrollment, userId) {
-  const accessToken = decryptToken(enrollment.accessToken);
-  const accounts = await bankAdapter.getAccounts(accessToken);
-  const bankName = enrollment.institutionName || null;
-
-  // Date window for syncing transactions (last 12 months)
-  const now = new Date();
-  const startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
-  const startStr = startDate.toISOString().slice(0, 10);
-  const endStr = now.toISOString().slice(0, 10);
-
-  for (let i = 0; i < accounts.length; i++) {
-    const a = accounts[i];
-    let balanceValue = 0;
-
-    // 1. Fetch balance for this account
-    try {
-      const balances = await bankAdapter.getBalances(accessToken, a.id);
-      const rawBalance = balances?.ledger ?? balances?.available ?? 0;
-      balanceValue = parseFloat(rawBalance) || 0;
-    } catch {
-      balanceValue = 0;
-    }
-
-    const institutionName = bankName || a.institution?.name || null;
-
-    // 2. Save or update account in PostgreSQL
-    await db.Account.upsert(
-      {
-        accountId: a.id,
-        enrollmentId: enrollment.enrollmentId,
-        userId,
-        name: a.name,
-        lastFour: a.last_four,
-        type: a.type,
-        subtype: a.subtype,
-        institutionName,
-        balance: balanceValue,
-      },
-      { conflictFields: ['account_id'] }
-    );
-
-    // 3. Fetch and persist transactions for this account
-    try {
-      const txns = await bankAdapter.getTransactions(accessToken, a.id, {
-        start_date: startStr,
-        end_date: endStr,
-        count: 500,
-      });
-
-      const list = Array.isArray(txns) ? txns : [];
-      for (let j = 0; j < list.length; j++) {
-        const t = list[j];
-        if (!t.id) continue;
-
-        await db.Transaction.upsert(
-          {
-            transactionId: t.id,
-            accountId: t.account_id || a.id,
-            enrollmentId: enrollment.enrollmentId,
-            userId,
-            date: t.date || endStr,
-            description: t.description || 'Transaction',
-            amount: parseFloat(t.amount) || 0,
-            category: t.details?.category || 'Uncategorized',
-            accountName: a.name,
-            institutionName,
-          },
-          { conflictFields: ['transaction_id'] }
-        );
-      }
-    } catch {
-      // If transactions fail for one account, continue syncing other accounts
-    }
-  }
-
-  return accounts;
-}
-
-// Save bank connection and encrypt its access token at rest
+// Save bank connection in Secrets Vault and run initial Sync Worker
+// (Equivalent to POST /exchange-token and POST /enrollments)
 async function createEnrollment(userId, { accessToken, enrollmentId, institutionName }) {
-  const encryptedToken = encryptToken(accessToken);
-
-  const [enrollment] = await db.Enrollment.findOrCreate({
-    where: { enrollmentId },
-    defaults: {
-      accessToken: encryptedToken,
-      institutionName,
-      userId,
-    },
+  // Step 1: Store encrypted access_token in Secrets Vault (enrollments table)
+  const enrollment = await secretsVault.storeEnrollmentToken(userId, {
+    enrollmentId,
+    accessToken,
+    institutionName,
   });
 
-  if (!enrollment.isNewRecord) {
-    await enrollment.update({
-      accessToken: encryptedToken,
-      institutionName,
-      userId,
-    });
-  }
-
-  // Sync accounts and transactions into the database right away
+  // Step 2: Trigger Sync Worker to pull accounts, balances, and transactions
   try {
-    await syncEnrollmentData(enrollment, userId);
+    await syncWorker.syncEnrollmentData(enrollment, userId);
   } catch {
-    // Allow enrollment creation to succeed even if initial background sync fails
+    // Allow enrollment save to succeed even if initial sync encounters a network error
   }
 
   return {
     id: enrollment.id,
     enrollmentId: enrollment.enrollmentId,
     institutionName: enrollment.institutionName,
+    syncCursor: enrollment.syncCursor || null,
   };
 }
 
-// List all connected banks for a user
+// Trigger Sync Worker for one enrollment or all user enrollments (POST /transactions/sync)
+async function syncUserTransactions(userId, enrollmentId = null) {
+  if (enrollmentId) {
+    const enrollment = await db.Enrollment.findOne({
+      where: { enrollmentId, userId },
+    });
+    if (!enrollment) {
+      return null;
+    }
+    const accounts = await syncWorker.syncEnrollmentData(enrollment, userId);
+    return [
+      {
+        enrollmentId: enrollment.enrollmentId,
+        institutionName: enrollment.institutionName,
+        syncCursor: enrollment.syncCursor,
+        accountsSynced: accounts.length,
+      },
+    ];
+  }
+
+  return await syncWorker.syncAllUserEnrollments(userId);
+}
+
+// List all connected bank institutions (enrollments) for a user
 async function listEnrollments(userId) {
   return await db.Enrollment.findAll({
     where: { userId },
-    attributes: ['id', 'enrollmentId', 'institutionName', 'createdAt'],
+    attributes: ['id', 'enrollmentId', 'institutionName', 'syncCursor', 'createdAt'],
     order: [['createdAt', 'DESC']],
   });
+}
+
+// Get all accounts + balances from the App Database (GET /accounts)
+async function listStoredAccounts(userId, enrollmentId = null) {
+  const enrollments = await db.Enrollment.findAll({
+    where: { userId },
+  });
+
+  let storedAccounts = await db.Account.findAll({
+    where: { userId },
+    order: [['createdAt', 'ASC']],
+  });
+
+  // If the user has connected banks but no cached accounts yet, run the Sync Worker once
+  if (enrollments.length > 0 && storedAccounts.length === 0) {
+    for (let i = 0; i < enrollments.length; i++) {
+      try {
+        await syncWorker.syncEnrollmentData(enrollments[i], userId);
+      } catch {
+        // Ignore individual enrollment sync errors
+      }
+    }
+    storedAccounts = await db.Account.findAll({
+      where: { userId },
+      order: [['createdAt', 'ASC']],
+    });
+  }
+
+  const results = [];
+  for (let i = 0; i < storedAccounts.length; i++) {
+    const a = storedAccounts[i];
+    if (enrollmentId && a.enrollmentId !== enrollmentId) {
+      continue;
+    }
+
+    const balance = parseFloat(a.balance) || 0;
+    const accountType = (a.type || '').toLowerCase();
+    const isAsset = accountType === 'deposit' || (accountType !== 'credit' && balance >= 0);
+
+    results.push({
+      id: a.accountId,
+      accountId: a.accountId,
+      enrollmentId: a.enrollmentId,
+      name: a.name,
+      lastFour: a.lastFour,
+      type: a.type,
+      subtype: a.subtype,
+      institutionName: a.institutionName || 'Bank',
+      balance: roundToCents(balance),
+      syncCursor: a.syncCursor || null,
+      isAsset,
+    });
+  }
+
+  return results;
+}
+
+// Get persisted transactions from the App Database (GET /transactions)
+// Supports filtering by enrollmentId or institutionName ("Transactions per institution")
+async function listStoredTransactions(userId, filters = {}) {
+  const enrollments = await db.Enrollment.findAll({
+    where: { userId },
+  });
+
+  let storedTransactions = await db.Transaction.findAll({
+    where: { userId },
+    order: [['date', 'DESC']],
+  });
+
+  // If user has connected banks but no cached transactions yet, run Sync Worker once
+  if (enrollments.length > 0 && storedTransactions.length === 0) {
+    for (let i = 0; i < enrollments.length; i++) {
+      try {
+        await syncWorker.syncEnrollmentData(enrollments[i], userId);
+      } catch {
+        // Ignore individual enrollment sync errors
+      }
+    }
+    storedTransactions = await db.Transaction.findAll({
+      where: { userId },
+      order: [['date', 'DESC']],
+    });
+  }
+
+  const targetEnrollmentId = filters.enrollmentId || '';
+  const targetInstitution = filters.institutionName || '';
+  const targetAccountId = filters.accountId || '';
+  const maxCount = parseInt(filters.count, 10) || 0;
+
+  const results = [];
+  for (let i = 0; i < storedTransactions.length; i++) {
+    const t = storedTransactions[i];
+
+    if (targetEnrollmentId && t.enrollmentId !== targetEnrollmentId) {
+      continue;
+    }
+    if (targetInstitution && t.institutionName !== targetInstitution) {
+      continue;
+    }
+    if (targetAccountId && t.accountId !== targetAccountId) {
+      continue;
+    }
+
+    results.push({
+      id: t.transactionId,
+      transactionId: t.transactionId,
+      accountId: t.accountId,
+      enrollmentId: t.enrollmentId,
+      date: t.date,
+      description: t.description,
+      amount: parseFloat(t.amount) || 0,
+      category: t.category || 'Uncategorized',
+      accountName: t.accountName,
+      institutionName: t.institutionName || 'Bank',
+    });
+
+    if (maxCount > 0 && results.length >= maxCount) {
+      break;
+    }
+  }
+
+  return results;
 }
 
 // Sync and return bank accounts for a specific enrollment
@@ -177,11 +209,11 @@ async function getAccountsForEnrollment(userId, enrollmentId) {
     return null;
   }
 
-  const accounts = await syncEnrollmentData(enrollment, userId);
+  const accounts = await syncWorker.syncEnrollmentData(enrollment, userId);
   return accounts;
 }
 
-// Get balance for a specific bank account
+// Get live balance for a specific bank account from Teller
 async function getBalancesForAccount(userId, enrollmentId, accountId) {
   const enrollment = await db.Enrollment.findOne({
     where: { enrollmentId, userId },
@@ -191,11 +223,11 @@ async function getBalancesForAccount(userId, enrollmentId, accountId) {
     return null;
   }
 
-  const accessToken = decryptToken(enrollment.accessToken);
+  const accessToken = secretsVault.decryptToken(enrollment.accessToken);
   return await bankAdapter.getBalances(accessToken, accountId);
 }
 
-// Get transactions for a specific bank account
+// Get live transactions for a specific bank account from Teller
 async function getTransactionsForAccount(userId, enrollmentId, accountId, params = {}) {
   const enrollment = await db.Enrollment.findOne({
     where: { enrollmentId, userId },
@@ -205,35 +237,13 @@ async function getTransactionsForAccount(userId, enrollmentId, accountId, params
     return null;
   }
 
-  const accessToken = decryptToken(enrollment.accessToken);
+  const accessToken = secretsVault.decryptToken(enrollment.accessToken);
   return await bankAdapter.getTransactions(accessToken, accountId, params);
 }
 
-// Calculate net worth from persisted accounts in PostgreSQL (syncing first if none are cached)
+// Calculate net worth from persisted accounts in PostgreSQL
 async function getNetWorth(userId) {
-  const enrollments = await db.Enrollment.findAll({
-    where: { userId },
-  });
-
-  let storedAccounts = await db.Account.findAll({
-    where: { userId },
-    order: [['createdAt', 'ASC']],
-  });
-
-  // If the user has connected banks but no cached accounts yet, sync once from the provider
-  if (enrollments.length > 0 && storedAccounts.length === 0) {
-    for (let i = 0; i < enrollments.length; i++) {
-      try {
-        await syncEnrollmentData(enrollments[i], userId);
-      } catch {
-        // Ignore individual enrollment sync errors
-      }
-    }
-    storedAccounts = await db.Account.findAll({
-      where: { userId },
-      order: [['createdAt', 'ASC']],
-    });
-  }
+  const storedAccounts = await listStoredAccounts(userId);
 
   let totalAssets = 0;
   let totalLiabilities = 0;
@@ -257,7 +267,8 @@ async function getNetWorth(userId) {
     }
 
     accountList.push({
-      id: a.accountId,
+      id: a.id,
+      enrollmentId: a.enrollmentId,
       name: a.name,
       lastFour: a.lastFour,
       type: a.type,
@@ -292,7 +303,7 @@ async function getDashboardSummary(userId, monthsBack = 3) {
   if (enrollments.length > 0 && storedTransactions.length === 0) {
     for (let i = 0; i < enrollments.length; i++) {
       try {
-        await syncEnrollmentData(enrollments[i], userId);
+        await syncWorker.syncEnrollmentData(enrollments[i], userId);
       } catch {
         // Ignore individual enrollment sync errors
       }
@@ -308,7 +319,7 @@ async function getDashboardSummary(userId, monthsBack = 3) {
   const startStr = startDate.toISOString().slice(0, 10);
   const endStr = endDate.toISOString().slice(0, 10);
 
-  // 1. Filter transactions within the requested date window
+  // Step 1: Filter transactions within the requested date window
   const allTransactions = [];
   for (let i = 0; i < storedTransactions.length; i++) {
     const t = storedTransactions[i];
@@ -317,7 +328,7 @@ async function getDashboardSummary(userId, monthsBack = 3) {
     }
   }
 
-  // 2. Group income and expenses by month
+  // Step 2: Group income and expenses by month
   const incomeByMonth = {};
   const expensesByMonth = {};
 
@@ -354,7 +365,7 @@ async function getDashboardSummary(userId, monthsBack = 3) {
     });
   }
 
-  // 3. Calculate spending by category for current month
+  // Step 3: Calculate spending by category for current month
   const currentMonth = now.toISOString().slice(0, 7);
   const categoryTotals = {};
 
@@ -381,15 +392,17 @@ async function getDashboardSummary(userId, monthsBack = 3) {
   }
   spendingByCategory.sort((a, b) => b.amount - a.amount);
 
-  // 4. Recent transactions (most recent 20)
+  // Step 4: Recent transactions (most recent 50 so per-institution filtering has plenty of items)
   allTransactions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const recentTransactions = [];
-  const maxRecent = Math.min(allTransactions.length, 20);
+  const maxRecent = Math.min(allTransactions.length, 50);
 
   for (let i = 0; i < maxRecent; i++) {
     const t = allTransactions[i];
     recentTransactions.push({
       id: t.transactionId,
+      enrollmentId: t.enrollmentId,
+      accountId: t.accountId,
       date: t.date,
       description: t.description,
       amount: parseFloat(t.amount) || 0,
@@ -399,7 +412,7 @@ async function getDashboardSummary(userId, monthsBack = 3) {
     });
   }
 
-  // 5. Quick stats (this month, last month, YTD)
+  // Step 5: Quick stats (this month, last month, YTD)
   const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonth = lastMonthDate.toISOString().slice(0, 7);
   const thisYear = String(now.getFullYear());
@@ -446,36 +459,22 @@ async function getDashboardSummary(userId, monthsBack = 3) {
   };
 }
 
-// Disconnect bank connection and remove cached accounts and transactions
+// Disconnect bank connection and purge cached accounts and transactions
 async function deleteEnrollment(userId, enrollmentId) {
-  const enrollment = await db.Enrollment.findOne({
-    where: { enrollmentId, userId },
-  });
-
-  if (!enrollment) {
-    return false;
-  }
-
-  const accessToken = decryptToken(enrollment.accessToken);
-  await bankAdapter.deleteEnrollment(accessToken);
-
-  await db.Transaction.destroy({
-    where: { enrollmentId: enrollment.enrollmentId, userId },
-  });
-  await db.Account.destroy({
-    where: { enrollmentId: enrollment.enrollmentId, userId },
-  });
-  await enrollment.destroy();
-
-  return true;
+  return await disconnectHandler.disconnectInstitution(userId, enrollmentId);
 }
 
 module.exports = {
-  encryptToken,
-  decryptToken,
-  syncEnrollmentData,
+  encryptToken: secretsVault.encryptToken,
+  decryptToken: secretsVault.decryptToken,
+  syncEnrollmentData: syncWorker.syncEnrollmentData,
+  syncAllUserEnrollments: syncWorker.syncAllUserEnrollments,
+  getConnectConfig,
   createEnrollment,
+  syncUserTransactions,
   listEnrollments,
+  listStoredAccounts,
+  listStoredTransactions,
   getAccountsForEnrollment,
   getBalancesForAccount,
   getTransactionsForAccount,

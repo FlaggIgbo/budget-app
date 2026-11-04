@@ -46,14 +46,14 @@ export class AuthService {
     );
   }
 
-  // Send verification code to email
+  // POST /otp/request - Send 6-digit verification code to email
   sendOtp(email: string): Observable<{ ok: boolean; message?: string }> {
-    return this.api.post<{ ok: boolean; message?: string }>('/auth/send-otp', { email });
+    return this.api.post<{ ok: boolean; message?: string }>('/otp/request', { email });
   }
 
-  // Verify code and log user in
-  verifyOtp(email: string, otp: string): Observable<{ ok: boolean; user: User }> {
-    return this.api.post<{ ok: boolean; user: User }>('/auth/verify-otp', { email, otp }).pipe(
+  // POST /otp/verify - Verify code and issue user session
+  verifyOtp(email: string, code: string): Observable<{ ok: boolean; user: User }> {
+    return this.api.post<{ ok: boolean; user: User }>('/otp/verify', { email, code }).pipe(
       tap((res) => {
         if (res.ok && res.user) {
           this.userSignal.set(res.user);

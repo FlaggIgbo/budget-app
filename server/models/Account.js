@@ -47,6 +47,11 @@ module.exports = (sequelize) => {
         type: DataTypes.DECIMAL(12, 2),
         defaultValue: 0,
       },
+      syncCursor: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        field: 'sync_cursor',
+      },
     },
     {
       tableName: 'accounts',

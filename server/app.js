@@ -3,6 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const { isSandboxMode } = require('./services/otp.service');
 
 const app = express();
 
@@ -24,16 +25,13 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Get Teller public configuration
 app.get('/api/config', (req, res) => {
-  const isSandbox =
-    process.env.TELLER_ENVIRONMENT === 'sandbox' || process.env.NODE_ENV === 'development';
-
   const config = {
     tellerApplicationId: process.env.TELLER_APPLICATION_ID || '',
     tellerEnvironment: process.env.TELLER_ENVIRONMENT || 'sandbox',
   };
 
   // Provide test email and code when in sandbox mode
-  if (isSandbox) {
+  if (isSandboxMode()) {
     config.authSandbox = { email: 'test@example.com', otp: '123456' };
   }
 

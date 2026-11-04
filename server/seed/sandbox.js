@@ -1,17 +1,11 @@
 const db = require('../models');
+const { isSandboxMode } = require('../services/otp.service');
 
 const SANDBOX_EMAIL = 'test@example.com';
 
-// Check if we are running in sandbox or dev mode
-function isSandboxEnv() {
-  const env = process.env.TELLER_ENVIRONMENT || 'sandbox';
-  const nodeEnv = process.env.NODE_ENV || 'development';
-  return env === 'sandbox' || nodeEnv === 'development';
-}
-
 // Create sandbox test user in database
 async function seedSandboxUser() {
-  if (!isSandboxEnv()) {
+  if (!isSandboxMode()) {
     return;
   }
 

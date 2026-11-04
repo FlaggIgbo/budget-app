@@ -204,13 +204,13 @@ export class BankAccountsComponent implements OnInit {
   constructor(private bank: BankService) {}
 
   ngOnInit() {
-    // 1. Get bank provider config
+    // Step 1: Get Teller Connect configuration
     this.bank.getConfig().subscribe({
       next: (c) => this.config.set(c),
       error: () => this.config.set({ tellerApplicationId: '', tellerEnvironment: 'sandbox' }),
     });
 
-    // 2. Load connected banks
+    // Step 2: Load connected bank institutions
     this.loadEnrollments();
   }
 
@@ -258,7 +258,7 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
-  // Open bank connect popup to connect a new bank
+  // Open Teller Connect UI popup (Select institution, login, consent)
   connectBank() {
     const cfg = this.config();
     if (!cfg || !cfg.tellerApplicationId) {
@@ -276,8 +276,9 @@ export class BankAccountsComponent implements OnInit {
         const id = enrollment.enrollment?.id || '';
         const name = enrollment.enrollment?.institution?.name;
 
-        // Save connection to backend
-        this.bank.createEnrollment(token, id, name).subscribe({
+        // Send token to API Server (POST /api/bank/exchange-token)
+        // which stores the encrypted access_token in Secrets Vault and runs Sync Worker
+        this.bank.exchangeToken(token, id, name).subscribe({
           next: () => {
             this.loadEnrollments();
             this.connecting.set(false);
@@ -295,7 +296,7 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
-  // Disconnect bank
+  // Disconnect bank (calls Disconnect Handler -> Teller DELETE /accounts + DB cascade delete)
   disconnect(enrollmentId: string) {
     this.disconnecting.set(enrollmentId);
 

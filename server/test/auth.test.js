@@ -51,20 +51,20 @@ describe('Auth API', () => {
     fakeRedisStore.clear();
   });
 
-  describe('POST /api/auth/send-otp', () => {
+  describe('POST /api/otp/request', () => {
     it('returns 400 when email is missing', async () => {
-      const res = await request(app).post('/api/auth/send-otp').send({});
+      const res = await request(app).post('/api/otp/request').send({});
       assert.strictEqual(res.status, 400);
       assert.ok(res.body.error?.toLowerCase().includes('email'));
     });
 
     it('returns 400 when email is invalid', async () => {
-      const res = await request(app).post('/api/auth/send-otp').send({ email: 'not-an-email' });
+      const res = await request(app).post('/api/otp/request').send({ email: 'not-an-email' });
       assert.strictEqual(res.status, 400);
     });
 
     it('returns 200 with valid email in sandbox', async () => {
-      const res = await request(app).post('/api/auth/send-otp').send({ email: 'test@example.com' });
+      const res = await request(app).post('/api/otp/request').send({ email: 'test@example.com' });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
     });
@@ -74,7 +74,7 @@ describe('Auth API', () => {
       process.env.TELLER_ENVIRONMENT = 'production';
 
       const email = 'produser@example.com';
-      const res = await request(app).post('/api/auth/send-otp').send({ email });
+      const res = await request(app).post('/api/otp/request').send({ email });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
 
@@ -89,22 +89,20 @@ describe('Auth API', () => {
     });
   });
 
-  describe('POST /api/auth/verify-otp', () => {
+  describe('POST /api/otp/verify', () => {
     it('returns 400 when email is missing', async () => {
-      const res = await request(app).post('/api/auth/verify-otp').send({ otp: '123456' });
+      const res = await request(app).post('/api/otp/verify').send({ otp: '123456' });
       assert.strictEqual(res.status, 400);
     });
 
     it('returns 400 when otp is missing', async () => {
-      const res = await request(app)
-        .post('/api/auth/verify-otp')
-        .send({ email: 'test@example.com' });
+      const res = await request(app).post('/api/otp/verify').send({ email: 'test@example.com' });
       assert.strictEqual(res.status, 400);
     });
 
     it('returns 200 and sets cookie with sandbox credentials', async () => {
       const res = await request(app)
-        .post('/api/auth/verify-otp')
+        .post('/api/otp/verify')
         .send({ email: 'test@example.com', otp: '123456' });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
@@ -128,11 +126,11 @@ describe('Auth API', () => {
       process.env.TELLER_ENVIRONMENT = 'production';
 
       const email = 'verifyprod@example.com';
-      await request(app).post('/api/auth/send-otp').send({ email });
+      await request(app).post('/api/otp/request').send({ email });
       const code = await otpService.getOtp(email);
       assert.ok(code);
 
-      const res = await request(app).post('/api/auth/verify-otp').send({ email, otp: code });
+      const res = await request(app).post('/api/otp/verify').send({ email, otp: code });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
       assert.strictEqual(res.body.user?.email, email);
@@ -146,9 +144,43 @@ describe('Auth API', () => {
       process.env.TELLER_ENVIRONMENT = 'production';
 
       const email = 'expired@example.com';
-      const res = await request(app).post('/api/auth/verify-otp').send({ email, otp: '654321' });
+      const res = await request(app).post('/api/otp/verify').send({ email, otp: '654321' });
       assert.strictEqual(res.status, 401);
       assert.ok(res.body.error?.toLowerCase().includes('invalid or expired'));
+    });
+  });
+
+  describe('POST /otp/request & POST /otp/verify (design flow)', () => {
+    it('generates 6-digit code, SETs otp:{email} with TTL in Redis, sends via Nodemailer, then GET/DELs and issues session', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.TELLER_ENVIRONMENT = 'production';
+
+      const email = 'designflow@example.com';
+      const reqRes = await request(app).post('/otp/request').send({ email });
+      assert.strictEqual(reqRes.status, 200);
+      assert.strictEqual(reqRes.body.ok, true);
+
+      const redisKey = `otp:${email}`;
+      const redisEntry = fakeRedisStore.get(redisKey);
+      assert.ok(redisEntry, 'expected code stored under otp:{email}');
+      assert.match(redisEntry.value, /^\d{6}$/);
+      assert.strictEqual(redisEntry.ttl, 300);
+
+      assert.strictEqual(sentEmails.length, 1);
+      assert.strictEqual(sentEmails[0].to, email);
+      assert.ok(sentEmails[0].text.includes(redisEntry.value));
+
+      const verifyRes = await request(app)
+        .post('/otp/verify')
+        .send({ email, code: redisEntry.value });
+      assert.strictEqual(verifyRes.status, 200);
+      assert.strictEqual(verifyRes.body.ok, true);
+      assert.strictEqual(verifyRes.body.user?.email, email);
+      assert.strictEqual(
+        fakeRedisStore.has(redisKey),
+        false,
+        'expected DEL from Redis after verify'
+      );
     });
   });
 });

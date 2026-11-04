@@ -1,11 +1,27 @@
 const bankService = require('../services/bank.service');
 
-// Save bank connection
+// ============================================================================
+// BANK CONTROLLER (API SERVER ENDPOINTS)
+// Handles requests from Browser (Teller Connect UI & Finance Dashboard)
+// ============================================================================
+
+// POST /link-token -> Return Teller Connect UI configuration
+exports.createLinkToken = async (req, res, next) => {
+  try {
+    const config = bankService.getConnectConfig();
+    res.json(config);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /exchange-token and POST /enrollments -> Save encrypted access_token & sync
 exports.createEnrollment = async (req, res, next) => {
   try {
-    const accessToken = req.body?.accessToken;
-    const enrollmentId = req.body?.enrollmentId;
-    const institutionName = req.body?.institutionName;
+    const accessToken = req.body?.accessToken || req.body?.public_token;
+    const enrollmentId = req.body?.enrollmentId || req.body?.enrollment?.id;
+    const institutionName =
+      req.body?.institutionName || req.body?.enrollment?.institution?.name || null;
 
     if (!accessToken || !enrollmentId) {
       return res.status(400).json({ error: 'accessToken and enrollmentId required' });
@@ -23,7 +39,7 @@ exports.createEnrollment = async (req, res, next) => {
   }
 };
 
-// List all connected banks for current user
+// GET /enrollments -> List all connected bank institutions for current user
 exports.listEnrollments = async (req, res, next) => {
   try {
     const enrollments = await bankService.listEnrollments(req.user.id);
@@ -33,7 +49,48 @@ exports.listEnrollments = async (req, res, next) => {
   }
 };
 
-// Get bank accounts for an enrollment
+// GET /accounts -> Get all persisted accounts + balances from App Database
+exports.listAllAccounts = async (req, res, next) => {
+  try {
+    const enrollmentId = req.query.enrollmentId || null;
+    const accounts = await bankService.listStoredAccounts(req.user.id, enrollmentId);
+    res.json(accounts);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /transactions -> Get persisted transactions (supports per-institution filtering)
+exports.listAllTransactions = async (req, res, next) => {
+  try {
+    const filters = {
+      enrollmentId: req.query.enrollmentId,
+      institutionName: req.query.institutionName,
+      accountId: req.query.accountId,
+      count: req.query.count,
+    };
+    const transactions = await bankService.listStoredTransactions(req.user.id, filters);
+    res.json(transactions);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /transactions/sync -> Trigger Sync Worker (balances + transactions with cursor)
+exports.syncTransactions = async (req, res, next) => {
+  try {
+    const enrollmentId = req.body?.enrollmentId || req.query?.enrollmentId || null;
+    const synced = await bankService.syncUserTransactions(req.user.id, enrollmentId);
+    if (synced === null) {
+      return res.status(404).json({ error: 'Enrollment not found' });
+    }
+    res.json({ synced });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /enrollments/:enrollmentId/accounts -> Sync and return accounts for an enrollment
 exports.getAccounts = async (req, res, next) => {
   try {
     const accounts = await bankService.getAccountsForEnrollment(
@@ -51,7 +108,7 @@ exports.getAccounts = async (req, res, next) => {
   }
 };
 
-// Get balance for a specific bank account
+// GET /accounts/:accountId/balances -> Get balance for a specific bank account
 exports.getBalances = async (req, res, next) => {
   try {
     const enrollmentId = req.query.enrollmentId;
@@ -75,7 +132,7 @@ exports.getBalances = async (req, res, next) => {
   }
 };
 
-// Get transactions for a bank account
+// GET /accounts/:accountId/transactions -> Get transactions for a bank account from Teller
 exports.getTransactions = async (req, res, next) => {
   try {
     const enrollmentId = req.query.enrollmentId;
@@ -85,8 +142,11 @@ exports.getTransactions = async (req, res, next) => {
 
     const params = {};
     if (req.query.count) params.count = req.query.count;
-    if (req.query.from_date) params.from_date = req.query.from_date;
-    if (req.query.to_date) params.to_date = req.query.to_date;
+    if (req.query.from_id) params.from_id = req.query.from_id;
+    if (req.query.start_date) params.start_date = req.query.start_date;
+    if (req.query.end_date) params.end_date = req.query.end_date;
+    if (req.query.from_date) params.start_date = req.query.from_date;
+    if (req.query.to_date) params.end_date = req.query.to_date;
 
     const transactions = await bankService.getTransactionsForAccount(
       req.user.id,
@@ -105,7 +165,7 @@ exports.getTransactions = async (req, res, next) => {
   }
 };
 
-// Calculate net worth (Total Assets minus Total Liabilities)
+// GET /net-worth -> Calculate net worth (Total Assets minus Total Liabilities)
 exports.getNetWorth = async (req, res, next) => {
   try {
     const result = await bankService.getNetWorth(req.user.id);
@@ -115,7 +175,7 @@ exports.getNetWorth = async (req, res, next) => {
   }
 };
 
-// Get monthly dashboard summary (income, expenses, spending by category)
+// GET /dashboard-summary -> Get monthly dashboard summary (income, expenses, spending by category)
 exports.getDashboardSummary = async (req, res, next) => {
   try {
     const monthsBack = parseInt(req.query.months, 10) || 3;
@@ -126,10 +186,15 @@ exports.getDashboardSummary = async (req, res, next) => {
   }
 };
 
-// Disconnect bank connection
+// DELETE /enrollments/:enrollmentId and POST /item/remove -> Disconnect Handler
 exports.deleteEnrollment = async (req, res, next) => {
   try {
-    const deleted = await bankService.deleteEnrollment(req.user.id, req.params.enrollmentId);
+    const enrollmentId = req.params.enrollmentId || req.body?.enrollmentId;
+    if (!enrollmentId) {
+      return res.status(400).json({ error: 'enrollmentId required' });
+    }
+
+    const deleted = await bankService.deleteEnrollment(req.user.id, enrollmentId);
     if (!deleted) {
       return res.status(404).json({ error: 'Enrollment not found' });
     }

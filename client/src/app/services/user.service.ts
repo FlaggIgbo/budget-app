@@ -21,11 +21,6 @@ export class UserService {
     return this.api.get<UserProfile>('/profile');
   }
 
-  // Update current user's profile
-  updateProfile(updates: Partial<UserProfile>): Observable<UserProfile> {
-    return this.api.patch<UserProfile>('/profile', updates);
-  }
-
   // Log user out
   logout(): Observable<{ ok: boolean }> {
     return this.auth.logout();

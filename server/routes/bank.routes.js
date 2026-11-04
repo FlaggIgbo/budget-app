@@ -1,19 +1,28 @@
 const controller = require('../controllers/bank.controller');
 const requireAuth = require('../middleware/requireAuth');
 
-// Bank connection and insights routes (all require login)
+// Bank connection, sync worker, and dashboard routes (all require login)
 module.exports = (app) => {
-  const prefixes = ['/api/bank', '/api/teller'];
+  // Teller Connect UI configuration
+  app.post('/api/bank/link-token', requireAuth, controller.createLinkToken);
 
-  for (let i = 0; i < prefixes.length; i++) {
-    const prefix = prefixes[i];
-    app.get(`${prefix}/net-worth`, requireAuth, controller.getNetWorth);
-    app.get(`${prefix}/dashboard-summary`, requireAuth, controller.getDashboardSummary);
-    app.post(`${prefix}/enrollments`, requireAuth, controller.createEnrollment);
-    app.get(`${prefix}/enrollments`, requireAuth, controller.listEnrollments);
-    app.get(`${prefix}/enrollments/:enrollmentId/accounts`, requireAuth, controller.getAccounts);
-    app.get(`${prefix}/accounts/:accountId/balances`, requireAuth, controller.getBalances);
-    app.get(`${prefix}/accounts/:accountId/transactions`, requireAuth, controller.getTransactions);
-    app.delete(`${prefix}/enrollments/:enrollmentId`, requireAuth, controller.deleteEnrollment);
-  }
+  // Bank enrollment & token exchange
+  app.post('/api/bank/exchange-token', requireAuth, controller.createEnrollment);
+  app.post('/api/bank/enrollments', requireAuth, controller.createEnrollment);
+  app.get('/api/bank/enrollments', requireAuth, controller.listEnrollments);
+  app.get('/api/bank/enrollments/:enrollmentId/accounts', requireAuth, controller.getAccounts);
+  app.delete('/api/bank/enrollments/:enrollmentId', requireAuth, controller.deleteEnrollment);
+
+  // Accounts & balances
+  app.get('/api/bank/accounts', requireAuth, controller.listAllAccounts);
+  app.get('/api/bank/accounts/:accountId/balances', requireAuth, controller.getBalances);
+  app.get('/api/bank/accounts/:accountId/transactions', requireAuth, controller.getTransactions);
+
+  // Transactions & sync
+  app.get('/api/bank/transactions', requireAuth, controller.listAllTransactions);
+  app.post('/api/bank/transactions/sync', requireAuth, controller.syncTransactions);
+
+  // Dashboard & insights
+  app.get('/api/bank/net-worth', requireAuth, controller.getNetWorth);
+  app.get('/api/bank/dashboard-summary', requireAuth, controller.getDashboardSummary);
 };

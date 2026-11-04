@@ -16,6 +16,12 @@ import {
   DashboardSummaryResponse,
 } from '../../services/bank.service';
 
+export interface InstitutionGroup {
+  institutionName: string;
+  enrollmentId: string;
+  accounts: NetWorthResponse['accounts'];
+}
+
 @Component({
   selector: 'app-dashboard',
   standalone: true,
@@ -52,8 +58,12 @@ import {
     <div class="dashboard">
       @if (netWorth(); as nw) {
         <mat-card appearance="outlined" class="section-card net-worth">
-          <mat-card-header>
-            <mat-card-title><h2>Net Worth</h2></mat-card-title>
+          <mat-card-header class="net-worth-header">
+            <mat-card-title><h2>Accounts & Balances (Net Worth)</h2></mat-card-title>
+            <button mat-stroked-button class="btn-sync" (click)="syncAll()" [disabled]="syncing()">
+              <mat-icon>sync</mat-icon>
+              {{ syncing() ? 'Syncing…' : 'Sync' }}
+            </button>
           </mat-card-header>
           <mat-card-content>
             <p
@@ -69,19 +79,38 @@ import {
                 <mat-chip>Liabilities: {{ nw.totalLiabilities | currency }}</mat-chip>
               </mat-chip-set>
             </div>
-            @if (nw.accounts && nw.accounts.length > 0) {
-              <mat-list class="account-list">
-                @for (a of nw.accounts; track a.id) {
-                  <mat-list-item class="account-item">
-                    <span matListItemTitle class="name">
-                      {{ a.name }} ({{ a.institutionName || 'Bank' }})
-                    </span>
-                    <span matListItemMeta class="balance" [class.liability]="!a.isAsset">
-                      {{ a.balance | currency }}
-                    </span>
-                  </mat-list-item>
-                }
-              </mat-list>
+            @if (institutionGroups().length > 0) {
+              @for (group of institutionGroups(); track group.institutionName) {
+                <div class="institution-group">
+                  <div class="institution-header">
+                    <span class="institution-title">{{ group.institutionName }}</span>
+                    @if (group.enrollmentId) {
+                      <button
+                        mat-stroked-button
+                        class="btn-disconnect"
+                        (click)="disconnectInstitution(group.enrollmentId)"
+                        [disabled]="disconnecting() === group.enrollmentId"
+                      >
+                        {{
+                          disconnecting() === group.enrollmentId ? 'Disconnecting…' : 'Disconnect'
+                        }}
+                      </button>
+                    }
+                  </div>
+                  <mat-list class="account-list">
+                    @for (a of group.accounts; track a.id) {
+                      <mat-list-item class="account-item">
+                        <span matListItemTitle class="name">
+                          {{ a.name }} ({{ a.institutionName || 'Bank' }})
+                        </span>
+                        <span matListItemMeta class="balance" [class.liability]="!a.isAsset">
+                          {{ a.balance | currency }}
+                        </span>
+                      </mat-list-item>
+                    }
+                  </mat-list>
+                </div>
+              }
             }
           </mat-card-content>
         </mat-card>
@@ -195,10 +224,24 @@ import {
 
         <mat-card appearance="outlined" class="section-card recent-transactions">
           <mat-card-header>
-            <mat-card-title><h2>Recent Transactions</h2></mat-card-title>
+            <mat-card-title><h2>Transactions per Institution</h2></mat-card-title>
           </mat-card-header>
           <mat-card-content>
             <div class="filter-row">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Filter by institution</mat-label>
+                <mat-select
+                  id="inst-filter"
+                  [value]="institutionFilter()"
+                  (selectionChange)="institutionFilter.set($event.value)"
+                >
+                  <mat-option value="">All institutions</mat-option>
+                  @for (inst of institutionOptions(); track inst) {
+                    <mat-option [value]="inst">{{ inst }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
               <mat-form-field appearance="outline" subscriptSizing="dynamic">
                 <mat-label>Filter by category</mat-label>
                 <mat-select
@@ -219,7 +262,15 @@ import {
                   <li class="txn-item">
                     <div class="txn-main">
                       <span class="txn-desc">{{ t.description }}</span>
-                      <span class="txn-date">{{ t.date }}</span>
+                      <span class="txn-date">
+                        {{ t.date }}
+                        @if (t.institutionName) {
+                          · {{ t.institutionName }}
+                        }
+                        @if (t.accountName) {
+                          ({{ t.accountName }})
+                        }
+                      </span>
                     </div>
                     <div class="txn-meta">
                       @if (t.category) {
@@ -296,6 +347,14 @@ import {
       mat-card-header {
         margin-bottom: 0.75rem;
       }
+      .net-worth-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .btn-sync {
+        margin-left: auto;
+      }
       h2 {
         font-size: 1.05rem;
         margin: 0;
@@ -314,6 +373,24 @@ import {
       }
       .breakdown {
         margin-bottom: 0.75rem;
+      }
+      .institution-group {
+        border-top: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+        padding-top: 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .institution-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.25rem;
+      }
+      .institution-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      .btn-disconnect {
+        color: var(--mat-sys-error, #dc2626);
       }
       .account-item .balance.liability {
         color: var(--mat-sys-error, #dc2626);
@@ -409,6 +486,9 @@ import {
         font-weight: 600;
       }
       .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
         margin: 0.5rem 0 1rem;
       }
       .txn-list {
@@ -478,8 +558,55 @@ export class DashboardComponent implements OnInit {
   summary = signal<DashboardSummaryResponse | null>(null);
   summaryError = signal(false);
   categoryFilter = signal<string>('');
+  institutionFilter = signal<string>('');
+  syncing = signal(false);
+  disconnecting = signal<string | null>(null);
 
-  // Get unique list of categories for filter dropdown
+  // Group accounts & balances by institution so users can view & disconnect per institution
+  institutionGroups = computed(() => {
+    const nw = this.netWorth();
+    if (!nw || !nw.accounts || nw.accounts.length === 0) {
+      return [];
+    }
+
+    const groupMap: Record<string, InstitutionGroup> = {};
+    for (const account of nw.accounts) {
+      const instName = account.institutionName || 'Bank';
+      if (!groupMap[instName]) {
+        groupMap[instName] = {
+          institutionName: instName,
+          enrollmentId: account.enrollmentId || '',
+          accounts: [],
+        };
+      }
+      groupMap[instName].accounts.push(account);
+    }
+
+    const groups: InstitutionGroup[] = [];
+    const keys = Object.keys(groupMap);
+    for (const key of keys) {
+      groups.push(groupMap[key]);
+    }
+    return groups;
+  });
+
+  // Get unique list of institutions for the "Transactions per institution" filter
+  institutionOptions = computed(() => {
+    const s = this.summary();
+    if (!s || !s.recentTransactions) {
+      return [];
+    }
+
+    const institutions = new Set<string>();
+    for (const txn of s.recentTransactions) {
+      if (txn.institutionName) {
+        institutions.add(txn.institutionName);
+      }
+    }
+    return Array.from(institutions).sort();
+  });
+
+  // Get unique list of categories for the category filter dropdown
   categoryOptions = computed(() => {
     const s = this.summary();
     if (!s || !s.recentTransactions) {
@@ -495,22 +622,24 @@ export class DashboardComponent implements OnInit {
     return Array.from(categories).sort();
   });
 
-  // Filter transactions by selected category
+  // Filter transactions by selected institution and category
   filteredTransactions = computed(() => {
     const s = this.summary();
-    const filter = this.categoryFilter();
+    const catFilter = this.categoryFilter();
+    const instFilter = this.institutionFilter();
     if (!s || !s.recentTransactions) {
       return [];
-    }
-    if (!filter) {
-      return s.recentTransactions;
     }
 
     const result = [];
     for (const t of s.recentTransactions) {
-      if (t.category === filter) {
-        result.push(t);
+      if (instFilter && t.institutionName !== instFilter) {
+        continue;
       }
+      if (catFilter && t.category !== catFilter) {
+        continue;
+      }
+      result.push(t);
     }
     return result;
   });
@@ -524,7 +653,12 @@ export class DashboardComponent implements OnInit {
   }
 
   ngOnInit() {
-    // 1. Load net worth
+    this.loadDashboardData();
+  }
+
+  // Load Net Worth (Accounts & Balances) and Dashboard Summary (Transactions)
+  loadDashboardData() {
+    // Step 1: Load net worth and accounts
     this.bank.getNetWorth().subscribe({
       next: (res) => {
         this.netWorth.set(res);
@@ -536,7 +670,7 @@ export class DashboardComponent implements OnInit {
       },
     });
 
-    // 2. Load dashboard summary
+    // Step 2: Load dashboard summary and transactions
     this.bank.getDashboardSummary().subscribe({
       next: (res) => {
         this.summary.set(res);
@@ -545,6 +679,40 @@ export class DashboardComponent implements OnInit {
       error: () => {
         this.summary.set(null);
         this.summaryError.set(true);
+      },
+    });
+  }
+
+  // Trigger Sync Worker (POST /api/bank/transactions/sync)
+  syncAll() {
+    if (!this.bank.syncTransactions) {
+      return;
+    }
+    this.syncing.set(true);
+    this.bank.syncTransactions().subscribe({
+      next: () => {
+        this.syncing.set(false);
+        this.loadDashboardData();
+      },
+      error: () => {
+        this.syncing.set(false);
+      },
+    });
+  }
+
+  // Disconnect an institution via the Disconnect Handler
+  disconnectInstitution(enrollmentId: string) {
+    if (!enrollmentId || !this.bank.deleteEnrollment) {
+      return;
+    }
+    this.disconnecting.set(enrollmentId);
+    this.bank.deleteEnrollment(enrollmentId).subscribe({
+      next: () => {
+        this.disconnecting.set(null);
+        this.loadDashboardData();
+      },
+      error: () => {
+        this.disconnecting.set(null);
       },
     });
   }
@@ -579,12 +747,6 @@ export class DashboardComponent implements OnInit {
 
     const percent = (amount / maxAmount) * 100;
     return Math.max(5, percent);
-  }
-
-  // Change category filter
-  onCategoryFilter(event: Event): void {
-    const target = event.target as HTMLSelectElement;
-    this.categoryFilter.set(target?.value ?? '');
   }
 
   // Log user out

@@ -37,17 +37,37 @@ db.Enrollment = require('./Enrollment')(sequelize);
 db.Account = require('./Account')(sequelize);
 db.Transaction = require('./Transaction')(sequelize);
 
-// Link models together
-db.User.hasMany(db.Session, { foreignKey: 'userId' });
+// Link models together with cascade delete on disconnect
+db.User.hasMany(db.Session, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Session.belongsTo(db.User, { foreignKey: 'userId' });
 
-db.User.hasMany(db.Enrollment, { foreignKey: 'userId' });
+db.User.hasMany(db.Enrollment, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Enrollment.belongsTo(db.User, { foreignKey: 'userId' });
 
-db.User.hasMany(db.Account, { foreignKey: 'userId' });
+db.User.hasMany(db.Account, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Account.belongsTo(db.User, { foreignKey: 'userId' });
 
-db.User.hasMany(db.Transaction, { foreignKey: 'userId' });
+db.User.hasMany(db.Transaction, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Transaction.belongsTo(db.User, { foreignKey: 'userId' });
+
+db.Enrollment.hasMany(db.Account, {
+  foreignKey: 'enrollmentId',
+  sourceKey: 'enrollmentId',
+  onDelete: 'CASCADE',
+});
+db.Account.belongsTo(db.Enrollment, {
+  foreignKey: 'enrollmentId',
+  targetKey: 'enrollmentId',
+});
+
+db.Enrollment.hasMany(db.Transaction, {
+  foreignKey: 'enrollmentId',
+  sourceKey: 'enrollmentId',
+  onDelete: 'CASCADE',
+});
+db.Transaction.belongsTo(db.Enrollment, {
+  foreignKey: 'enrollmentId',
+  targetKey: 'enrollmentId',
+});
 
 module.exports = db;

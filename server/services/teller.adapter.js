@@ -2,13 +2,28 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
+// ============================================================================
+// TELLER API ADAPTER
+// Handles all HTTP requests to https://api.teller.io using HTTP Basic Auth
+// (username = accessToken, password = empty string) and mTLS client certs.
+// ============================================================================
+
 const TELLER_BASE_URL = 'https://api.teller.io';
 const CERT_FILE =
   process.env.TELLER_CERT_PATH || path.join(__dirname, '../certs/teller/certificate.pem');
 const KEY_FILE =
   process.env.TELLER_KEY_PATH || path.join(__dirname, '../certs/teller/private_key.pem');
 
-// Load certificate for HTTPS if available
+// Return Teller Connect UI configuration (Teller equivalent of /link-token)
+function getConnectConfig() {
+  return {
+    applicationId: process.env.TELLER_APPLICATION_ID || '',
+    environment: process.env.TELLER_ENVIRONMENT || 'sandbox',
+    products: ['balance', 'transactions', 'verify'],
+  };
+}
+
+// Load mTLS client certificate for HTTPS if available (required in dev/production)
 function getAgent() {
   let cert = process.env.TELLER_CERT || null;
   let key = process.env.TELLER_KEY || null;
@@ -20,7 +35,7 @@ function getAgent() {
     key = fs.readFileSync(KEY_FILE);
   }
 
-  // If no certs found, return null (sandbox mode does not need certs)
+  // Sandbox mode does not require client certificates
   if (!cert || !key) {
     return null;
   }
@@ -32,19 +47,19 @@ function getAgent() {
   });
 }
 
-// Make HTTP request to Teller API (only this adapter knows Teller exists)
+// Make an authenticated HTTPS request to the Teller API
 function tellerRequest(accessToken, method, endpoint, body) {
   const env = process.env.TELLER_ENVIRONMENT || 'sandbox';
   const agent = getAgent();
 
-  // Development and production require certificates
+  // Development and production require mTLS certificates
   if ((env === 'development' || env === 'production') && !agent) {
     return Promise.reject(
       new Error('Teller certificates required for development/production mode.')
     );
   }
 
-  // Build the full URL for the Teller endpoint
+  // Step 1: Build the full URL for the Teller endpoint
   let fullUrl = endpoint;
   if (!endpoint.startsWith('http')) {
     if (endpoint.startsWith('/')) {
@@ -54,6 +69,8 @@ function tellerRequest(accessToken, method, endpoint, body) {
     }
   }
 
+  // Step 2: Teller uses HTTP Basic Auth with the access_token as the username
+  // and an empty password -> base64("accessToken:")
   const url = new URL(fullUrl);
   const basicAuth = Buffer.from(`${accessToken}:`).toString('base64');
 
@@ -87,7 +104,10 @@ function tellerRequest(accessToken, method, endpoint, body) {
             resolve(parsed);
           } else {
             const errorMsg =
-              parsed?.message || parsed?.error || `Bank provider error code: ${res.statusCode}`;
+              parsed?.error?.message ||
+              parsed?.message ||
+              parsed?.error ||
+              `Bank provider error code: ${res.statusCode}`;
             reject(new Error(errorMsg));
           }
         } catch {
@@ -108,14 +128,30 @@ function tellerRequest(accessToken, method, endpoint, body) {
   });
 }
 
-// Provider adapter interface for bank operations
+// Teller.io API endpoints:
+// - GET /accounts                           -> List all accounts for enrollment
+// - GET /accounts/:account_id               -> Get single account details
+// - GET /accounts/:account_id/balances      -> Get account ledger & available balances
+// - GET /accounts/:account_id/transactions  -> List transactions (supports from_id, count, start_date, end_date)
+// - DELETE /accounts/:account_id            -> Disconnect a single account
+// - DELETE /accounts                        -> Disconnect entire enrollment (all accounts)
 module.exports = {
+  getConnectConfig,
   getAgent,
   getAccounts: (token) => tellerRequest(token, 'GET', '/accounts'),
   getAccount: (token, accountId) => tellerRequest(token, 'GET', `/accounts/${accountId}`),
   getBalances: (token, accountId) => tellerRequest(token, 'GET', `/accounts/${accountId}/balances`),
   getTransactions: (token, accountId, params = {}) => {
-    const query = new URLSearchParams(params).toString();
+    const cleanParams = {};
+    const keys = Object.keys(params);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
+        cleanParams[key] = params[key];
+      }
+    }
+
+    const query = new URLSearchParams(cleanParams).toString();
     let url = `/accounts/${accountId}/transactions`;
     if (query) {
       url += `?${query}`;
