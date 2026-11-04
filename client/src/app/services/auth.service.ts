@@ -4,7 +4,7 @@ import { Observable, tap, catchError, of, map } from 'rxjs';
 
 export interface User {
   id: string;
-  phone: string;
+  email: string;
 }
 
 // Service to manage login status and user session
@@ -14,7 +14,7 @@ export class AuthService {
   private loadedSignal = signal(false);
 
   user = this.userSignal.asReadonly();
-  isLoggedIn = computed(() => !!this.userSignal());
+  isLoggedIn = computed(() => this.userSignal() !== null);
   loaded = this.loadedSignal.asReadonly();
 
   constructor(private api: ApiService) {}
@@ -35,14 +35,14 @@ export class AuthService {
     );
   }
 
-  // Send verification code to phone
-  sendOtp(phone: string): Observable<{ ok: boolean; message?: string }> {
-    return this.api.post<{ ok: boolean; message?: string }>('/auth/send-otp', { phone });
+  // Send verification code to email
+  sendOtp(email: string): Observable<{ ok: boolean; message?: string }> {
+    return this.api.post<{ ok: boolean; message?: string }>('/auth/send-otp', { email });
   }
 
   // Verify code and log user in
-  verifyOtp(phone: string, otp: string): Observable<{ ok: boolean; user: User }> {
-    return this.api.post<{ ok: boolean; user: User }>('/auth/verify-otp', { phone, otp }).pipe(
+  verifyOtp(email: string, otp: string): Observable<{ ok: boolean; user: User }> {
+    return this.api.post<{ ok: boolean; user: User }>('/auth/verify-otp', { email, otp }).pipe(
       tap((res) => {
         if (res.ok && res.user) {
           this.userSignal.set(res.user);

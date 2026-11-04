@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
@@ -14,6 +15,7 @@ describe('DashboardComponent', () => {
     await TestBed.configureTestingModule({
       imports: [DashboardComponent],
       providers: [
+        provideNoopAnimations(),
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ status: 'ok' }) } },
         { provide: AuthService, useValue: { logout: () => of({ ok: true }) } },

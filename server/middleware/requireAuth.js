@@ -12,7 +12,7 @@ module.exports = async (req, res, next) => {
     // 2. Find session in database
     const session = await db.Session.findOne({
       where: { token },
-      include: [{ model: db.User, attributes: ['id', 'phone'] }],
+      include: [{ model: db.User, attributes: ['id', 'email'] }],
     });
 
     if (!session || !session.User) {

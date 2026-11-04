@@ -2,70 +2,116 @@ import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
 import { TellerService } from '../../services/teller.service';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressSpinnerModule,
+  ],
   template: `
     <div class="login">
-      <div class="card">
-        <h1>Budget App</h1>
-        <p class="subtitle">Sign in with your phone number</p>
+      <mat-card appearance="outlined" class="card">
+        <mat-card-header>
+          <mat-card-title><h1>Budget App</h1></mat-card-title>
+          <mat-card-subtitle class="subtitle">Sign in with your email address</mat-card-subtitle>
+        </mat-card-header>
 
-        @if (sandbox(); as creds) {
-          <div class="sandbox-banner">
-            <strong>Sandbox test credentials</strong>
-            <p>
-              Phone: <code>{{ creds.phone }}</code> · Code: <code>{{ creds.otp }}</code>
-            </p>
-          </div>
-        }
+        <mat-card-content>
+          @if (sandbox(); as creds) {
+            <div class="sandbox-banner">
+              <div class="sandbox-header">
+                <mat-icon>science</mat-icon>
+                <strong>Sandbox test credentials</strong>
+              </div>
+              <p>
+                Email: <code>{{ creds.email }}</code> · Code: <code>{{ creds.otp }}</code>
+              </p>
+            </div>
+          }
 
-        @if (step() === 'phone') {
-          <form (ngSubmit)="sendOtp()" class="form">
-            <label for="phone">Phone number</label>
-            <input
-              id="phone"
-              type="tel"
-              [(ngModel)]="phone"
-              (ngModelChange)="phone = formatPhone($event)"
-              name="phone"
-              [placeholder]="sandbox()?.phone ?? '(555) 555-5555'"
-              autocomplete="tel"
-              inputmode="numeric"
-            />
-            <button type="submit" class="btn" [disabled]="loading() || !phone.trim()">
-              {{ loading() ? 'Sending…' : 'Send code' }}
-            </button>
-          </form>
-        } @else {
-          <form (ngSubmit)="verifyOtp()" class="form">
-            <label for="otp">Verification code</label>
-            <input
-              id="otp"
-              type="text"
-              [(ngModel)]="otp"
-              name="otp"
-              [placeholder]="sandbox()?.otp ?? '123456'"
-              maxlength="6"
-              autocomplete="one-time-code"
-            />
-            <button type="submit" class="btn" [disabled]="loading() || !otp.trim()">
-              {{ loading() ? 'Verifying…' : 'Verify' }}
-            </button>
-            <button type="button" class="btn-link" (click)="step.set('phone')">
-              ← Change number
-            </button>
-          </form>
-        }
+          @if (step() === 'email') {
+            <form (ngSubmit)="sendOtp()" class="form">
+              <mat-form-field appearance="outline">
+                <mat-label><label for="email">Email address</label></mat-label>
+                <mat-icon matPrefix>mail</mat-icon>
+                <input
+                  matInput
+                  id="email"
+                  type="email"
+                  [(ngModel)]="email"
+                  name="email"
+                  [placeholder]="sandbox()?.email ?? 'you@example.com'"
+                  autocomplete="email"
+                  inputmode="email"
+                />
+              </mat-form-field>
+              <button
+                mat-flat-button
+                type="submit"
+                class="btn"
+                [disabled]="loading() || !email.trim()"
+              >
+                @if (loading()) {
+                  <mat-spinner diameter="20"></mat-spinner>
+                }
+                {{ loading() ? 'Sending…' : 'Send code' }}
+              </button>
+            </form>
+          } @else {
+            <form (ngSubmit)="verifyOtp()" class="form">
+              <mat-form-field appearance="outline">
+                <mat-label><label for="otp">Verification code</label></mat-label>
+                <mat-icon matPrefix>lock</mat-icon>
+                <input
+                  matInput
+                  id="otp"
+                  type="text"
+                  [(ngModel)]="otp"
+                  name="otp"
+                  [placeholder]="sandbox()?.otp ?? '123456'"
+                  maxlength="6"
+                  autocomplete="one-time-code"
+                />
+              </mat-form-field>
+              <button
+                mat-flat-button
+                type="submit"
+                class="btn"
+                [disabled]="loading() || !otp.trim()"
+              >
+                @if (loading()) {
+                  <mat-spinner diameter="20"></mat-spinner>
+                }
+                {{ loading() ? 'Verifying…' : 'Verify' }}
+              </button>
+              <button mat-button type="button" class="btn-link" (click)="step.set('email')">
+                <mat-icon>arrow_back</mat-icon>
+                Change email
+              </button>
+            </form>
+          }
 
-        @if (error(); as err) {
-          <p class="error">{{ err }}</p>
-        }
-      </div>
+          @if (error(); as err) {
+            <p class="error">{{ err }}</p>
+          }
+        </mat-card-content>
+      </mat-card>
     </div>
   `,
   styles: [
@@ -76,44 +122,46 @@ import { TellerService } from '../../services/teller.service';
         align-items: center;
         justify-content: center;
         padding: 1.5rem;
-        background: #f8fafc;
-        font-family: system-ui, sans-serif;
       }
       .card {
-        background: white;
-        padding: 2.5rem;
-        border-radius: 16px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         width: 100%;
-        max-width: 400px;
+        max-width: 420px;
+        padding: 1rem;
+      }
+      mat-card-header {
+        margin-bottom: 1rem;
       }
       h1 {
-        margin: 0 0 0.25rem;
+        margin: 0;
         font-size: 1.75rem;
-        color: #0f172a;
+        font-weight: 600;
       }
       .subtitle {
-        color: #64748b;
-        margin: 0 0 1.5rem;
-        font-size: 0.95rem;
+        margin-top: 0.25rem;
       }
       .sandbox-banner {
-        background: #f1f5f9;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        background: var(--mat-sys-surface-container, #f1f5f9);
+        border: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+        border-radius: 12px;
         padding: 0.75rem 1rem;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.25rem;
         font-size: 0.85rem;
-        color: #475569;
       }
-      .sandbox-banner strong {
-        color: #0f172a;
+      .sandbox-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .sandbox-header mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
       }
       .sandbox-banner p {
-        margin: 0.25rem 0 0;
+        margin: 0.35rem 0 0;
       }
       .sandbox-banner code {
-        background: #e2e8f0;
+        background: var(--mat-sys-surface-container-high, #e2e8f0);
         padding: 0.15rem 0.4rem;
         border-radius: 4px;
         font-size: 0.85em;
@@ -121,54 +169,16 @@ import { TellerService } from '../../services/teller.service';
       .form {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
+        gap: 0.5rem;
       }
-      label {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: #334155;
-      }
-      input {
-        padding: 0.75rem 1rem;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        font-size: 1rem;
-      }
-      input:focus {
-        outline: none;
-        border-color: #0f172a;
+      mat-form-field {
+        width: 100%;
       }
       .btn {
-        background: #0f172a;
-        color: white;
-        border: none;
-        padding: 0.75rem 1rem;
-        border-radius: 8px;
-        font-size: 1rem;
-        font-weight: 500;
-        cursor: pointer;
-        margin-top: 0.5rem;
-      }
-      .btn:hover:not(:disabled) {
-        background: #1e293b;
-      }
-      .btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .btn-link {
-        background: none;
-        border: none;
-        color: #64748b;
-        font-size: 0.9rem;
-        cursor: pointer;
-        padding: 0.5rem 0;
-      }
-      .btn-link:hover {
-        color: #0f172a;
+        height: 44px;
       }
       .error {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
         font-size: 0.9rem;
         margin: 1rem 0 0;
       }
@@ -176,30 +186,18 @@ import { TellerService } from '../../services/teller.service';
   ],
 })
 export class LoginComponent implements OnInit {
-  phone = '';
+  email = '';
   otp = '';
-  step = signal<'phone' | 'otp'>('phone');
+  step = signal<'email' | 'otp'>('email');
   loading = signal(false);
   error = signal<string | null>(null);
-  sandbox = signal<{ phone: string; otp: string } | null>(null);
+  sandbox = signal<{ email: string; otp: string } | null>(null);
 
   constructor(
     private auth: AuthService,
     private teller: TellerService,
     private router: Router
   ) {}
-
-  // Format phone number string into XXX-XXX-XXXX format
-  formatPhone(value: string): string {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
-    if (digits.length <= 3) {
-      return digits;
-    }
-    if (digits.length <= 6) {
-      return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    }
-    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
 
   ngOnInit() {
     // Check if server provides sandbox test credentials
@@ -217,7 +215,7 @@ export class LoginComponent implements OnInit {
     this.error.set(null);
     this.loading.set(true);
 
-    this.auth.sendOtp(this.phone).subscribe({
+    this.auth.sendOtp(this.email).subscribe({
       next: () => {
         this.step.set('otp');
         this.loading.set(false);
@@ -235,7 +233,7 @@ export class LoginComponent implements OnInit {
     this.error.set(null);
     this.loading.set(true);
 
-    this.auth.verifyOtp(this.phone, this.otp).subscribe({
+    this.auth.verifyOtp(this.email, this.otp).subscribe({
       next: () => {
         this.loading.set(false);
         this.router.navigate(['/dashboard']);

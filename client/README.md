@@ -1,6 +1,6 @@
 # Budget App Client
 
-Angular 19 frontend for the Budget App.
+Angular 19 + Angular Material (Material 3) frontend for the Budget App.
 
 ## Setup
 

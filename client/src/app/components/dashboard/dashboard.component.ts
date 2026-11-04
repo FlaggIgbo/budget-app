@@ -1,6 +1,15 @@
 import { Component, signal, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatCardModule } from '@angular/material/card';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import {
@@ -12,309 +21,323 @@ import {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [
+    CommonModule,
+    RouterLink,
+    MatToolbarModule,
+    MatCardModule,
+    MatButtonModule,
+    MatIconModule,
+    MatListModule,
+    MatChipsModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatProgressBarModule,
+  ],
   template: `
-    <div class="dashboard">
-      <header class="header">
+    <mat-toolbar class="top-toolbar">
+      <div class="toolbar-inner">
         <h1>Budget App</h1>
         <div class="header-actions">
-          <a routerLink="/profile" class="link-profile">Profile</a>
-          <button class="btn-logout" (click)="logout()">Log out</button>
+          <a mat-button routerLink="/profile" class="link-profile">
+            <mat-icon>person</mat-icon>
+            Profile
+          </a>
+          <button mat-stroked-button class="btn-logout" (click)="logout()">
+            <mat-icon>logout</mat-icon>
+            Log out
+          </button>
         </div>
-      </header>
+      </div>
+    </mat-toolbar>
 
+    <div class="dashboard">
       @if (netWorth(); as nw) {
-        <section class="net-worth">
-          <h2>Net Worth</h2>
-          <p class="amount" [class.positive]="nw.netWorth >= 0" [class.negative]="nw.netWorth < 0">
-            {{ nw.netWorth | currency }}
-          </p>
-          <div class="breakdown">
-            <span>Assets: {{ nw.totalAssets | currency }}</span>
-            <span>Liabilities: {{ nw.totalLiabilities | currency }}</span>
-          </div>
-          @if (nw.accounts && nw.accounts.length > 0) {
-            <ul class="account-list">
-              @for (a of nw.accounts; track a.id) {
-                <li class="account-item">
-                  <span class="name">{{ a.name }} ({{ a.institutionName || 'Bank' }})</span>
-                  <span class="balance" [class.liability]="!a.isAsset">{{
-                    a.balance | currency
-                  }}</span>
-                </li>
-              }
-            </ul>
-          }
-        </section>
+        <mat-card appearance="outlined" class="section-card net-worth">
+          <mat-card-header>
+            <mat-card-title><h2>Net Worth</h2></mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <p
+              class="amount"
+              [class.positive]="nw.netWorth >= 0"
+              [class.negative]="nw.netWorth < 0"
+            >
+              {{ nw.netWorth | currency }}
+            </p>
+            <div class="breakdown">
+              <mat-chip-set>
+                <mat-chip>Assets: {{ nw.totalAssets | currency }}</mat-chip>
+                <mat-chip>Liabilities: {{ nw.totalLiabilities | currency }}</mat-chip>
+              </mat-chip-set>
+            </div>
+            @if (nw.accounts && nw.accounts.length > 0) {
+              <mat-list class="account-list">
+                @for (a of nw.accounts; track a.id) {
+                  <mat-list-item class="account-item">
+                    <span matListItemTitle class="name">
+                      {{ a.name }} ({{ a.institutionName || 'Bank' }})
+                    </span>
+                    <span matListItemMeta class="balance" [class.liability]="!a.isAsset">
+                      {{ a.balance | currency }}
+                    </span>
+                  </mat-list-item>
+                }
+              </mat-list>
+            }
+          </mat-card-content>
+        </mat-card>
       } @else if (netWorthError()) {
         <p class="error">Could not load net worth. Connect a bank account to get started.</p>
       } @else {
-        <p class="loading">Loading net worth…</p>
+        <div class="loading">
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+          <p>Loading net worth…</p>
+        </div>
       }
 
       @if (summary(); as s) {
-        <section class="income-expenses">
-          <h2>Income vs. Expenses</h2>
-          <p class="section-desc">Monthly cash flow</p>
-          @if (s.incomeVsExpenses && s.incomeVsExpenses.length > 0) {
-            <div class="bar-chart">
-              @for (row of s.incomeVsExpenses; track row.month) {
-                <div class="bar-row">
-                  <span class="bar-label">{{ row.month }}</span>
-                  <div class="bar-track">
-                    <div
-                      class="bar income"
-                      [style.width.%]="barWidth(row.income, row.expenses, row.income)"
-                    ></div>
-                    <div
-                      class="bar expense"
-                      [style.width.%]="barWidth(row.income, row.expenses, row.expenses)"
-                    ></div>
+        <mat-card appearance="outlined" class="section-card income-expenses">
+          <mat-card-header>
+            <mat-card-title><h2>Income vs. Expenses</h2></mat-card-title>
+            <mat-card-subtitle>Monthly cash flow</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            @if (s.incomeVsExpenses && s.incomeVsExpenses.length > 0) {
+              <div class="bar-chart">
+                @for (row of s.incomeVsExpenses; track row.month) {
+                  <div class="bar-row">
+                    <span class="bar-label">{{ row.month }}</span>
+                    <div class="bar-track">
+                      <div
+                        class="bar income"
+                        [style.width.%]="barWidth(row.income, row.expenses, row.income)"
+                      ></div>
+                      <div
+                        class="bar expense"
+                        [style.width.%]="barWidth(row.income, row.expenses, row.expenses)"
+                      ></div>
+                    </div>
+                    <span class="bar-values"
+                      >{{ row.income | currency }} / {{ row.expenses | currency }}</span
+                    >
                   </div>
-                  <span class="bar-values"
-                    >{{ row.income | currency }} / {{ row.expenses | currency }}</span
-                  >
-                </div>
-              }
-            </div>
-          } @else {
-            <p class="empty">No transaction data yet. Connect a bank and sync.</p>
-          }
-        </section>
+                }
+              </div>
+            } @else {
+              <p class="empty">No transaction data yet. Connect a bank and sync.</p>
+            }
+          </mat-card-content>
+        </mat-card>
 
-        <section class="spending-category">
-          <h2>Spending by Category</h2>
-          <p class="section-desc">This month</p>
-          @if (s.spendingByCategory && s.spendingByCategory.length > 0) {
-            <div class="category-bars">
-              @for (c of s.spendingByCategory; track c.category) {
-                <div class="cat-row">
-                  <span class="cat-name">{{ c.category }}</span>
-                  <div class="cat-bar-wrap">
-                    <div class="cat-bar" [style.width.%]="catBarWidth(c.amount)"></div>
+        <mat-card appearance="outlined" class="section-card spending-category">
+          <mat-card-header>
+            <mat-card-title><h2>Spending by Category</h2></mat-card-title>
+            <mat-card-subtitle>This month</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            @if (s.spendingByCategory && s.spendingByCategory.length > 0) {
+              <div class="category-bars">
+                @for (c of s.spendingByCategory; track c.category) {
+                  <div class="cat-row">
+                    <span class="cat-name">{{ c.category }}</span>
+                    <div class="cat-bar-wrap">
+                      <div class="cat-bar" [style.width.%]="catBarWidth(c.amount)"></div>
+                    </div>
+                    <span class="cat-amt">{{ c.amount | currency }}</span>
                   </div>
-                  <span class="cat-amt">{{ c.amount | currency }}</span>
-                </div>
-              }
-            </div>
-          } @else {
-            <p class="empty">No spending data this month.</p>
-          }
-        </section>
+                }
+              </div>
+            } @else {
+              <p class="empty">No spending data this month.</p>
+            }
+          </mat-card-content>
+        </mat-card>
 
         @if (s.quickStats) {
           <section class="quick-stats">
             <h2>Quick Stats</h2>
             <div class="stats-grid">
-              <div class="stat-card">
-                <span class="stat-label">This month</span>
-                <span class="stat-income">+{{ s.quickStats.thisMonthIncome | currency }}</span>
-                <span class="stat-expense">-{{ s.quickStats.thisMonthExpenses | currency }}</span>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">MoM change</span>
-                <span
-                  class="stat-pct"
-                  [class.up]="(s.quickStats.momIncomeChangePct ?? 0) >= 0"
-                  [class.down]="(s.quickStats.momIncomeChangePct ?? 0) < 0"
-                >
-                  Income {{ s.quickStats.momIncomeChangePct ?? 0 | number: '1.1-1' }}%
-                </span>
-                <span
-                  class="stat-pct"
-                  [class.up]="(s.quickStats.momExpensesChangePct ?? 0) <= 0"
-                  [class.down]="(s.quickStats.momExpensesChangePct ?? 0) > 0"
-                >
-                  Expenses {{ s.quickStats.momExpensesChangePct ?? 0 | number: '1.1-1' }}%
-                </span>
-              </div>
-              <div class="stat-card">
-                <span class="stat-label">YTD</span>
-                <span class="stat-income">+{{ s.quickStats.ytdIncome | currency }}</span>
-                <span class="stat-expense">-{{ s.quickStats.ytdExpenses | currency }}</span>
-              </div>
+              <mat-card appearance="outlined" class="stat-card">
+                <mat-card-content class="stat-content">
+                  <span class="stat-label">This month</span>
+                  <span class="stat-income">+{{ s.quickStats.thisMonthIncome | currency }}</span>
+                  <span class="stat-expense">-{{ s.quickStats.thisMonthExpenses | currency }}</span>
+                </mat-card-content>
+              </mat-card>
+              <mat-card appearance="outlined" class="stat-card">
+                <mat-card-content class="stat-content">
+                  <span class="stat-label">MoM change</span>
+                  <span
+                    class="stat-pct"
+                    [class.up]="(s.quickStats.momIncomeChangePct ?? 0) >= 0"
+                    [class.down]="(s.quickStats.momIncomeChangePct ?? 0) < 0"
+                  >
+                    Income {{ s.quickStats.momIncomeChangePct ?? 0 | number: '1.1-1' }}%
+                  </span>
+                  <span
+                    class="stat-pct"
+                    [class.up]="(s.quickStats.momExpensesChangePct ?? 0) <= 0"
+                    [class.down]="(s.quickStats.momExpensesChangePct ?? 0) > 0"
+                  >
+                    Expenses {{ s.quickStats.momExpensesChangePct ?? 0 | number: '1.1-1' }}%
+                  </span>
+                </mat-card-content>
+              </mat-card>
+              <mat-card appearance="outlined" class="stat-card">
+                <mat-card-content class="stat-content">
+                  <span class="stat-label">YTD</span>
+                  <span class="stat-income">+{{ s.quickStats.ytdIncome | currency }}</span>
+                  <span class="stat-expense">-{{ s.quickStats.ytdExpenses | currency }}</span>
+                </mat-card-content>
+              </mat-card>
             </div>
           </section>
         }
 
-        <section class="recent-transactions">
-          <h2>Recent Transactions</h2>
-          <div class="filter-row">
-            <label for="cat-filter">Filter by category:</label>
-            <select id="cat-filter" [value]="categoryFilter()" (change)="onCategoryFilter($event)">
-              <option value="">All</option>
-              @for (c of categoryOptions(); track c) {
-                <option [value]="c">{{ c }}</option>
-              }
-            </select>
-          </div>
-          @if (filteredTransactions() && filteredTransactions().length > 0) {
-            <ul class="txn-list">
-              @for (t of filteredTransactions(); track t.id) {
-                <li class="txn-item">
-                  <div class="txn-main">
-                    <span class="txn-desc">{{ t.description }}</span>
-                    <span class="txn-date">{{ t.date }}</span>
-                  </div>
-                  <div class="txn-meta">
-                    @if (t.category) {
-                      <span class="txn-cat">{{ t.category }}</span>
-                    }
-                    <span
-                      class="txn-amt"
-                      [class.income]="t.amount > 0"
-                      [class.expense]="t.amount < 0"
-                    >
-                      {{ t.amount | currency }}
-                    </span>
-                  </div>
-                </li>
-              }
-            </ul>
-          } @else {
-            <p class="empty">No recent transactions.</p>
-          }
-        </section>
+        <mat-card appearance="outlined" class="section-card recent-transactions">
+          <mat-card-header>
+            <mat-card-title><h2>Recent Transactions</h2></mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="filter-row">
+              <mat-form-field appearance="outline" subscriptSizing="dynamic">
+                <mat-label>Filter by category</mat-label>
+                <mat-select
+                  id="cat-filter"
+                  [value]="categoryFilter()"
+                  (selectionChange)="categoryFilter.set($event.value)"
+                >
+                  <mat-option value="">All</mat-option>
+                  @for (c of categoryOptions(); track c) {
+                    <mat-option [value]="c">{{ c }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+            </div>
+            @if (filteredTransactions() && filteredTransactions().length > 0) {
+              <ul class="txn-list">
+                @for (t of filteredTransactions(); track t.id) {
+                  <li class="txn-item">
+                    <div class="txn-main">
+                      <span class="txn-desc">{{ t.description }}</span>
+                      <span class="txn-date">{{ t.date }}</span>
+                    </div>
+                    <div class="txn-meta">
+                      @if (t.category) {
+                        <span class="txn-cat">{{ t.category }}</span>
+                      }
+                      <span
+                        class="txn-amt"
+                        [class.income]="t.amount > 0"
+                        [class.expense]="t.amount < 0"
+                      >
+                        {{ t.amount | currency }}
+                      </span>
+                    </div>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="empty">No recent transactions.</p>
+            }
+          </mat-card-content>
+        </mat-card>
       } @else if (summaryError()) {
         <p class="error">Could not load dashboard summary.</p>
       } @else if (!netWorthError()) {
-        <p class="loading">Loading dashboard…</p>
+        <div class="loading">
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+          <p>Loading dashboard…</p>
+        </div>
       }
 
-      <a routerLink="/accounts" class="link-accounts">Connect bank or credit card →</a>
-      @if (apiStatus(); as status) {
-        <p class="api-status" [class.connected]="status === 'ok'">API: {{ status }}</p>
-      }
+      <div class="footer-row">
+        <a mat-flat-button routerLink="/accounts" class="link-accounts">
+          <mat-icon>account_balance</mat-icon>
+          Connect bank or credit card →
+        </a>
+        @if (apiStatus(); as status) {
+          <span class="api-status" [class.connected]="status === 'ok'">API: {{ status }}</span>
+        }
+      </div>
     </div>
   `,
   styles: [
     `
-      .dashboard {
-        padding: 2rem;
-        font-family: system-ui, sans-serif;
-        max-width: 800px;
-        margin: 0 auto;
+      .top-toolbar {
+        background: var(--mat-sys-surface, #ffffff);
+        border-bottom: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
       }
-      .header {
+      .toolbar-inner {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 1.5rem;
+        width: 100%;
+        max-width: 840px;
+        margin: 0 auto;
+      }
+      .toolbar-inner h1 {
+        margin: 0;
+        font-size: 1.35rem;
+        font-weight: 600;
       }
       .header-actions {
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 0.75rem;
       }
-      .link-profile {
-        color: #64748b;
-        text-decoration: none;
-        font-size: 0.9rem;
+      .dashboard {
+        padding: 2rem 1.5rem;
+        max-width: 840px;
+        margin: 0 auto;
       }
-      .link-profile:hover {
-        color: #0f172a;
+      .section-card {
+        margin-bottom: 1.5rem;
       }
-      .btn-logout {
-        background: transparent;
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-        padding: 0.4rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.9rem;
-        cursor: pointer;
+      mat-card-header {
+        margin-bottom: 0.75rem;
       }
-      .btn-logout:hover {
-        color: #0f172a;
-        border-color: #94a3b8;
-      }
-      .api-status {
-        color: #666;
-        font-size: 0.9rem;
-      }
-      .api-status.connected {
-        color: #22c55e;
-      }
-      .link-accounts {
-        display: inline-block;
-        margin-top: 1rem;
-        color: #0f172a;
+      h2 {
+        font-size: 1.05rem;
+        margin: 0;
         font-weight: 500;
-      }
-      .net-worth {
-        margin-bottom: 2rem;
-      }
-      .net-worth h2,
-      .income-expenses h2,
-      .spending-category h2,
-      .quick-stats h2,
-      .recent-transactions h2 {
-        font-size: 1rem;
-        color: #64748b;
-        margin: 0 0 0.25rem;
-        font-weight: 500;
-      }
-      .section-desc {
-        font-size: 0.85rem;
-        color: #94a3b8;
-        margin: 0 0 0.75rem;
       }
       .net-worth .amount {
-        font-size: 2rem;
+        font-size: 2.25rem;
         font-weight: 700;
-        margin: 0 0 0.5rem;
+        margin: 0.25rem 0 0.75rem;
       }
       .net-worth .amount.positive {
         color: #16a34a;
       }
       .net-worth .amount.negative {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
       }
       .breakdown {
-        display: flex;
-        gap: 1rem;
-        font-size: 0.9rem;
-        color: #64748b;
-        margin-bottom: 1rem;
-      }
-      .account-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        border-top: 1px solid #e2e8f0;
-      }
-      .account-item {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.5rem 0;
-        font-size: 0.9rem;
-      }
-      .account-item .name {
-        color: #475569;
+        margin-bottom: 0.75rem;
       }
       .account-item .balance.liability {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
       }
       .loading,
       .error,
       .empty {
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
         margin-bottom: 1rem;
       }
       .error {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
       }
-      .income-expenses,
-      .spending-category,
-      .quick-stats,
-      .recent-transactions {
-        margin-bottom: 2rem;
-      }
-      .bar-chart {
+      .bar-chart,
+      .category-bars {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0.65rem;
+        margin-top: 0.5rem;
       }
-      .bar-row {
+      .bar-row,
+      .cat-row {
         display: flex;
         align-items: center;
         gap: 0.75rem;
@@ -323,12 +346,13 @@ import {
         width: 5rem;
         font-size: 0.85rem;
       }
-      .bar-track {
+      .bar-track,
+      .cat-bar-wrap {
         flex: 1;
         display: flex;
-        height: 1.25rem;
-        background: #f1f5f9;
-        border-radius: 4px;
+        height: 1.1rem;
+        background: var(--mat-sys-surface-container, #f1f5f9);
+        border-radius: 6px;
         overflow: hidden;
       }
       .bar.income {
@@ -340,91 +364,65 @@ import {
       .bar-values {
         width: 10rem;
         font-size: 0.8rem;
-        color: #64748b;
-      }
-      .category-bars {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-      }
-      .cat-row {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
+        color: var(--mat-sys-on-surface-variant, #64748b);
       }
       .cat-name {
         width: 7rem;
         font-size: 0.9rem;
       }
-      .cat-bar-wrap {
-        flex: 1;
-        height: 1rem;
-        background: #f1f5f9;
-        border-radius: 4px;
-        overflow: hidden;
-      }
       .cat-bar {
         height: 100%;
-        background: #6366f1;
-        border-radius: 4px;
+        background: var(--mat-sys-primary, #6366f1);
+        border-radius: 6px;
       }
       .cat-amt {
         width: 5rem;
         font-size: 0.9rem;
         text-align: right;
       }
+      .quick-stats {
+        margin-bottom: 1.5rem;
+      }
+      .quick-stats h2 {
+        margin-bottom: 0.75rem;
+      }
       .stats-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 1rem;
       }
-      .stat-card {
-        padding: 1rem;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+      .stat-content {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
+        gap: 0.35rem;
       }
       .stat-label {
         font-size: 0.8rem;
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
       }
-      .stat-income {
-        color: #16a34a;
-        font-weight: 600;
-      }
-      .stat-expense {
-        color: #dc2626;
-        font-weight: 600;
-      }
+      .stat-income,
       .stat-pct.up {
         color: #16a34a;
+        font-weight: 600;
       }
+      .stat-expense,
       .stat-pct.down {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
+        font-weight: 600;
       }
       .filter-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 0.75rem;
-      }
-      .filter-row select {
-        padding: 0.35rem 0.5rem;
-        border-radius: 6px;
-        border: 1px solid #e2e8f0;
+        margin: 0.5rem 0 1rem;
       }
       .txn-list {
         list-style: none;
         margin: 0;
         padding: 0;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        border: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+        border-radius: 12px;
       }
       .txn-item {
         padding: 0.75rem 1rem;
-        border-bottom: 1px solid #f1f5f9;
+        border-bottom: 1px solid var(--mat-sys-surface-container, #f1f5f9);
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
@@ -440,9 +438,10 @@ import {
       .txn-desc {
         font-weight: 500;
       }
-      .txn-date {
+      .txn-date,
+      .txn-cat {
         font-size: 0.8rem;
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
       }
       .txn-meta {
         display: flex;
@@ -450,15 +449,26 @@ import {
         align-items: flex-end;
         gap: 0.25rem;
       }
-      .txn-cat {
-        font-size: 0.8rem;
-        color: #64748b;
-      }
       .txn-amt.income {
         color: #16a34a;
+        font-weight: 500;
       }
       .txn-amt.expense {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
+        font-weight: 500;
+      }
+      .footer-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1.5rem;
+      }
+      .api-status {
+        color: var(--mat-sys-on-surface-variant, #666);
+        font-size: 0.85rem;
+      }
+      .api-status.connected {
+        color: #22c55e;
       }
     `,
   ],

@@ -1,7 +1,7 @@
 // User model
 export interface User {
   id: string;
-  phone: string;
+  email: string;
 }
 
 // Bank account model

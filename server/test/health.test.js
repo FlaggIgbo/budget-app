@@ -32,7 +32,7 @@ describe('Health & Config API', () => {
       const res = await request(app).get('/api/config');
       assert.strictEqual(res.status, 200);
       assert.ok(res.body.authSandbox);
-      assert.strictEqual(res.body.authSandbox.phone, '555-555-5555');
+      assert.strictEqual(res.body.authSandbox.email, 'test@example.com');
       assert.strictEqual(res.body.authSandbox.otp, '123456');
     });
   });

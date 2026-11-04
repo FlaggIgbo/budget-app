@@ -1,6 +1,12 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatCardModule } from '@angular/material/card';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import {
   TellerService,
   TellerEnrollment,
@@ -12,26 +18,52 @@ import { AuthService } from '../../services/auth.service';
 @Component({
   selector: 'app-bank-accounts',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [
+    CommonModule,
+    RouterLink,
+    MatToolbarModule,
+    MatCardModule,
+    MatButtonModule,
+    MatIconModule,
+    MatListModule,
+    MatProgressBarModule,
+  ],
   template: `
+    <mat-toolbar class="top-toolbar">
+      <div class="toolbar-inner">
+        <a mat-button routerLink="/dashboard" class="back">
+          <mat-icon>arrow_back</mat-icon>
+          Dashboard
+        </a>
+        <button mat-stroked-button class="btn-logout" (click)="logout()">
+          <mat-icon>logout</mat-icon>
+          Log out
+        </button>
+      </div>
+    </mat-toolbar>
+
     <div class="bank-accounts">
-      <header>
-        <div class="header-row">
-          <a routerLink="/dashboard" class="back">← Dashboard</a>
-          <button class="btn-logout" (click)="logout()">Log out</button>
-        </div>
+      <header class="page-header">
         <h1>Bank Accounts</h1>
         <p class="subtitle">Connect your bank or credit card to sync transactions and balances</p>
       </header>
 
       @if (config(); as cfg) {
         @if (!cfg.tellerApplicationId) {
-          <div class="alert">
-            Teller is not configured. Add TELLER_APPLICATION_ID to your server environment.
-          </div>
+          <mat-card appearance="outlined" class="alert-card">
+            <mat-card-content>
+              Teller is not configured. Add TELLER_APPLICATION_ID to your server environment.
+            </mat-card-content>
+          </mat-card>
         } @else {
-          <button class="btn-connect" (click)="connectBank()" [disabled]="connecting()">
-            {{ connecting() ? 'Connecting…' : '+ Connect bank or credit card' }}
+          <button
+            mat-flat-button
+            class="btn-connect"
+            (click)="connectBank()"
+            [disabled]="connecting()"
+          >
+            <mat-icon>add_link</mat-icon>
+            {{ connecting() ? 'Connecting…' : 'Connect bank or credit card' }}
           </button>
         }
       }
@@ -46,33 +78,41 @@ import { AuthService } from '../../services/auth.service';
           <p class="empty">No accounts connected yet. Connect your bank or credit card above.</p>
         } @else {
           @for (e of enrollments(); track e.enrollmentId) {
-            <div class="enrollment-card">
-              <div class="enrollment-header">
-                <span class="institution">{{ e.institutionName || 'Bank Account' }}</span>
+            <mat-card appearance="outlined" class="enrollment-card">
+              <mat-card-header class="enrollment-header">
+                <mat-card-title class="institution">
+                  {{ e.institutionName || 'Bank Account' }}
+                </mat-card-title>
                 <button
+                  mat-stroked-button
                   class="btn-disconnect"
                   (click)="disconnect(e.enrollmentId)"
                   [disabled]="disconnecting() === e.enrollmentId"
                 >
                   {{ disconnecting() === e.enrollmentId ? 'Disconnecting…' : 'Disconnect' }}
                 </button>
-              </div>
+              </mat-card-header>
 
-              @if (loadingAccounts().has(e.enrollmentId)) {
-                <p class="loading">Loading accounts…</p>
-              } @else {
-                @if (accountsByEnrollment()[e.enrollmentId]; as accounts) {
-                  <ul class="accounts">
-                    @for (a of accounts; track a.id) {
-                      <li class="account">
-                        <span class="name">{{ a.name }}</span>
-                        <span class="meta">· ···{{ a.last_four }} ({{ a.type }})</span>
-                      </li>
-                    }
-                  </ul>
+              <mat-card-content>
+                @if (loadingAccounts().has(e.enrollmentId)) {
+                  <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+                  <p class="loading">Loading accounts…</p>
+                } @else {
+                  @if (accountsByEnrollment()[e.enrollmentId]; as accounts) {
+                    <mat-list class="accounts">
+                      @for (a of accounts; track a.id) {
+                        <mat-list-item class="account">
+                          <span matListItemTitle class="name">{{ a.name }}</span>
+                          <span matListItemLine class="meta">
+                            ···{{ a.last_four }} ({{ a.type }})
+                          </span>
+                        </mat-list-item>
+                      }
+                    </mat-list>
+                  }
                 }
-              }
-            </div>
+              </mat-card-content>
+            </mat-card>
           }
         }
       </section>
@@ -80,77 +120,49 @@ import { AuthService } from '../../services/auth.service';
   `,
   styles: [
     `
-      .bank-accounts {
-        padding: 2rem;
-        font-family: system-ui, sans-serif;
-        max-width: 600px;
-        margin: 0 auto;
+      .top-toolbar {
+        background: var(--mat-sys-surface, #ffffff);
+        border-bottom: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
       }
-      .header-row {
+      .toolbar-inner {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 1rem;
+        width: 100%;
+        max-width: 640px;
+        margin: 0 auto;
       }
-      .back {
-        color: #64748b;
-        text-decoration: none;
-        font-size: 0.9rem;
+      .bank-accounts {
+        padding: 2rem 1.5rem;
+        max-width: 640px;
+        margin: 0 auto;
       }
-      .back:hover {
-        color: #0f172a;
-      }
-      .btn-logout {
-        background: transparent;
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-        padding: 0.4rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.9rem;
-        cursor: pointer;
-      }
-      .btn-logout:hover {
-        color: #0f172a;
-        border-color: #94a3b8;
+      .page-header {
+        margin-bottom: 1.5rem;
       }
       h1 {
         margin: 0 0 0.25rem;
-        font-size: 1.5rem;
+        font-size: 1.75rem;
+        font-weight: 600;
       }
       .subtitle {
-        color: #64748b;
-        margin: 0 0 1.5rem;
+        color: var(--mat-sys-on-surface-variant, #64748b);
+        margin: 0;
         font-size: 0.95rem;
       }
       .btn-connect {
-        background: #0f172a;
-        color: white;
-        border: none;
-        padding: 0.6rem 1.2rem;
-        border-radius: 8px;
-        font-size: 0.95rem;
-        cursor: pointer;
         margin-bottom: 2rem;
       }
-      .btn-connect:hover:not(:disabled) {
-        background: #1e293b;
-      }
-      .btn-connect:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .alert,
-      .error {
-        padding: 0.75rem 1rem;
-        border-radius: 8px;
-        margin-bottom: 1.5rem;
-        font-size: 0.9rem;
-      }
-      .alert {
+      .alert-card {
         background: #fef3c7;
         color: #92400e;
+        margin-bottom: 1.5rem;
       }
       .error {
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
         background: #fee2e2;
         color: #991b1b;
       }
@@ -159,59 +171,24 @@ import { AuthService } from '../../services/auth.service';
         margin-bottom: 1rem;
       }
       .empty {
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
       }
       .enrollment-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1rem;
         margin-bottom: 1rem;
       }
       .enrollment-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem;
-      }
-      .institution {
-        font-weight: 600;
       }
       .btn-disconnect {
-        background: transparent;
-        color: #dc2626;
-        border: 1px solid #dc2626;
-        padding: 0.35rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        cursor: pointer;
-      }
-      .btn-disconnect:hover:not(:disabled) {
-        background: #fef2f2;
-      }
-      .btn-disconnect:disabled {
-        opacity: 0.6;
-      }
-      .accounts {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-      }
-      .account {
-        padding: 0.5rem 0;
-        border-top: 1px solid #f1f5f9;
-        font-size: 0.9rem;
-      }
-      .account .name {
-        font-weight: 500;
-      }
-      .account .meta {
-        color: #64748b;
-        margin-left: 0.5rem;
+        color: var(--mat-sys-error, #dc2626);
+        margin-left: auto;
       }
       .loading {
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
         font-size: 0.9rem;
-        margin: 0;
+        margin: 0.5rem 0 0;
       }
     `,
   ],
@@ -257,25 +234,30 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
+  // Update loading state for a bank enrollment
+  setEnrollmentLoading(enrollmentId: string, isLoading: boolean) {
+    const updatedSet = new Set(this.loadingAccounts());
+    if (isLoading) {
+      updatedSet.add(enrollmentId);
+    } else {
+      updatedSet.delete(enrollmentId);
+    }
+    this.loadingAccounts.set(updatedSet);
+  }
+
   // Load individual accounts for a connected bank
   loadAccounts(enrollmentId: string) {
-    this.loadingAccounts.update((s) => new Set(s).add(enrollmentId));
+    this.setEnrollmentLoading(enrollmentId, true);
 
     this.teller.getAccounts(enrollmentId).subscribe({
       next: (accounts) => {
-        this.accountsByEnrollment.update((m) => ({ ...m, [enrollmentId]: accounts }));
-        this.loadingAccounts.update((s) => {
-          const next = new Set(s);
-          next.delete(enrollmentId);
-          return next;
-        });
+        const updatedMap = { ...this.accountsByEnrollment() };
+        updatedMap[enrollmentId] = accounts;
+        this.accountsByEnrollment.set(updatedMap);
+        this.setEnrollmentLoading(enrollmentId, false);
       },
       error: () => {
-        this.loadingAccounts.update((s) => {
-          const next = new Set(s);
-          next.delete(enrollmentId);
-          return next;
-        });
+        this.setEnrollmentLoading(enrollmentId, false);
       },
     });
   }

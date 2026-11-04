@@ -44,9 +44,15 @@ function tellerRequest(accessToken, method, endpoint, body) {
     );
   }
 
-  const fullUrl = endpoint.startsWith('http')
-    ? endpoint
-    : `${TELLER_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  // Build the full URL for the Teller endpoint
+  let fullUrl = endpoint;
+  if (!endpoint.startsWith('http')) {
+    if (endpoint.startsWith('/')) {
+      fullUrl = TELLER_BASE_URL + endpoint;
+    } else {
+      fullUrl = TELLER_BASE_URL + '/' + endpoint;
+    }
+  }
 
   const url = new URL(fullUrl);
   const basicAuth = Buffer.from(`${accessToken}:`).toString('base64');
@@ -114,7 +120,10 @@ module.exports = {
   // Get transactions
   getTransactions: (token, accountId, params = {}) => {
     const query = new URLSearchParams(params).toString();
-    const url = `/accounts/${accountId}/transactions${query ? `?${query}` : ''}`;
+    let url = `/accounts/${accountId}/transactions`;
+    if (query) {
+      url += `?${query}`;
+    }
     return tellerRequest(token, 'GET', url);
   },
   // Delete account

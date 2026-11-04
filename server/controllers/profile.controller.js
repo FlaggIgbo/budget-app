@@ -10,7 +10,7 @@ exports.getProfile = async (req, res, next) => {
 
     res.json({
       id: user.id,
-      phone: user.phone,
+      email: user.email,
     });
   } catch (err) {
     next(err);
@@ -26,12 +26,12 @@ exports.updateProfile = async (req, res, next) => {
     }
 
     const updated = await db.User.findByPk(user.id, {
-      attributes: ['id', 'phone'],
+      attributes: ['id', 'email'],
     });
 
     res.json({
       id: updated.id,
-      phone: updated.phone,
+      email: updated.email,
     });
   } catch (err) {
     next(err);

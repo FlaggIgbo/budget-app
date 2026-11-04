@@ -1,108 +1,111 @@
 import { Component, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatCardModule } from '@angular/material/card';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 
 export interface Profile {
   id: string;
-  phone: string;
+  email: string;
 }
 
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [
+    CommonModule,
+    RouterLink,
+    MatToolbarModule,
+    MatCardModule,
+    MatButtonModule,
+    MatIconModule,
+    MatListModule,
+    MatProgressBarModule,
+  ],
   template: `
+    <mat-toolbar class="top-toolbar">
+      <div class="toolbar-inner">
+        <a mat-button routerLink="/dashboard" class="back">
+          <mat-icon>arrow_back</mat-icon>
+          Dashboard
+        </a>
+        <button mat-stroked-button class="btn-logout" (click)="logout()">
+          <mat-icon>logout</mat-icon>
+          Log out
+        </button>
+      </div>
+    </mat-toolbar>
+
     <div class="profile">
-      <header>
-        <div class="header-row">
-          <a routerLink="/dashboard" class="back">← Dashboard</a>
-          <button class="btn-logout" (click)="logout()">Log out</button>
-        </div>
+      <header class="page-header">
         <h1>Profile</h1>
         <p class="subtitle">Manage your account settings</p>
       </header>
 
       @if (profile(); as p) {
-        <div class="profile-card">
-          <div class="field">
-            <span class="label">Phone Number</span>
-            <span class="value">{{ p.phone }}</span>
-          </div>
-        </div>
+        <mat-card appearance="outlined" class="profile-card">
+          <mat-card-content>
+            <mat-list>
+              <mat-list-item>
+                <mat-icon matListItemIcon>mail</mat-icon>
+                <span matListItemTitle class="label">Email Address</span>
+                <span matListItemLine class="value">{{ p.email }}</span>
+              </mat-list-item>
+            </mat-list>
+          </mat-card-content>
+        </mat-card>
       } @else if (error()) {
         <p class="error">{{ error() }}</p>
       } @else {
+        <mat-progress-bar mode="indeterminate"></mat-progress-bar>
         <p class="loading">Loading profile…</p>
       }
     </div>
   `,
   styles: [
     `
-      .profile {
-        padding: 2rem;
-        font-family: system-ui, sans-serif;
-        max-width: 480px;
-        margin: 0 auto;
+      .top-toolbar {
+        background: var(--mat-sys-surface, #ffffff);
+        border-bottom: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
       }
-      .header-row {
+      .toolbar-inner {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 1rem;
+        width: 100%;
+        max-width: 520px;
+        margin: 0 auto;
       }
-      .back {
-        color: #64748b;
-        text-decoration: none;
-        font-size: 0.9rem;
+      .profile {
+        padding: 2rem 1.5rem;
+        max-width: 520px;
+        margin: 0 auto;
       }
-      .back:hover {
-        color: #0f172a;
-      }
-      .btn-logout {
-        background: transparent;
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-        padding: 0.4rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.9rem;
-        cursor: pointer;
-      }
-      .btn-logout:hover {
-        color: #0f172a;
-        border-color: #94a3b8;
+      .page-header {
+        margin-bottom: 1.5rem;
       }
       h1 {
         margin: 0 0 0.25rem;
-        font-size: 1.5rem;
+        font-size: 1.75rem;
+        font-weight: 600;
       }
       .subtitle {
-        color: #64748b;
-        margin: 0 0 1.5rem;
+        color: var(--mat-sys-on-surface-variant, #64748b);
+        margin: 0;
         font-size: 0.95rem;
       }
-      .profile-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.5rem;
-      }
-      .field label {
-        display: block;
-        font-size: 0.85rem;
-        color: #64748b;
-        margin-bottom: 0.25rem;
-      }
-      .field .value {
-        font-size: 1.1rem;
-        font-weight: 500;
-        color: #0f172a;
-      }
       .loading {
-        color: #64748b;
+        color: var(--mat-sys-on-surface-variant, #64748b);
+        margin-top: 0.5rem;
       }
       .error {
-        color: #dc2626;
+        color: var(--mat-sys-error, #dc2626);
       }
     `,
   ],

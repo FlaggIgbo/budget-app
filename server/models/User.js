@@ -1,15 +1,40 @@
 const { DataTypes } = require('sequelize');
 
-// Keep only digits in phone number
-function normalizePhone(phone) {
-  if (!phone || typeof phone !== 'string') {
-    return null;
+// Trim and lowercase email address
+function normalizeEmail(email) {
+  if (!email || typeof email !== 'string') {
+    return '';
   }
-  return phone.replace(/\D/g, '');
+  return email.trim().toLowerCase();
+}
+
+// Basic email format validation (checks for "name@domain.com" structure)
+function isValidEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized || normalized.includes(' ')) {
+    return false;
+  }
+
+  const parts = normalized.split('@');
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const localPart = parts[0];
+  const domainPart = parts[1];
+  if (!localPart || !domainPart) {
+    return false;
+  }
+
+  if (!domainPart.includes('.') || domainPart.startsWith('.') || domainPart.endsWith('.')) {
+    return false;
+  }
+
+  return true;
 }
 
 module.exports = (sequelize) => {
-  // User table stores phone numbers
+  // User table stores email addresses
   const User = sequelize.define(
     'User',
     {
@@ -18,8 +43,8 @@ module.exports = (sequelize) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
-      phone: {
-        type: DataTypes.STRING(20),
+      email: {
+        type: DataTypes.STRING(255),
         allowNull: false,
         unique: true,
       },
@@ -27,16 +52,16 @@ module.exports = (sequelize) => {
     {
       tableName: 'users',
       underscored: true,
-      indexes: [{ fields: ['phone'], unique: true }],
+      indexes: [{ fields: ['email'], unique: true }],
     }
   );
 
-  User.normalizePhone = normalizePhone;
+  User.normalizeEmail = normalizeEmail;
+  User.isValidEmail = isValidEmail;
 
-  // Check if phone is test phone
-  User.isSandboxPhone = (phone) => {
-    const cleanPhone = normalizePhone(phone);
-    return cleanPhone === '1555555555' || cleanPhone === '5555555555';
+  // Check if email is the sandbox dummy email
+  User.isSandboxEmail = (email) => {
+    return normalizeEmail(email) === 'test@example.com';
   };
 
   return User;

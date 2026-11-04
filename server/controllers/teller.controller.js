@@ -1,6 +1,11 @@
 const tellerService = require('../services/teller.service');
 const db = require('../models');
 
+// Round a number to 2 decimal places (cents)
+function roundToCents(amount) {
+  return Math.round(amount * 100) / 100;
+}
+
 // Save bank connection from Teller Connect
 exports.createEnrollment = async (req, res, next) => {
   try {
@@ -293,15 +298,23 @@ exports.getDashboardSummary = async (req, res, next) => {
       }
     }
 
-    // Combine all unique months
-    const allMonths = Object.keys({ ...incomeByMonth, ...expensesByMonth }).sort();
+    // Combine all unique months from income and expenses
+    const monthSet = new Set();
+    for (const month of Object.keys(incomeByMonth)) {
+      monthSet.add(month);
+    }
+    for (const month of Object.keys(expensesByMonth)) {
+      monthSet.add(month);
+    }
+    const allMonths = Array.from(monthSet).sort();
+
     const incomeVsExpenses = [];
     for (let i = 0; i < allMonths.length; i++) {
       const m = allMonths[i];
       incomeVsExpenses.push({
         month: m,
-        income: Math.round((incomeByMonth[m] || 0) * 100) / 100,
-        expenses: Math.round((expensesByMonth[m] || 0) * 100) / 100,
+        income: roundToCents(incomeByMonth[m] || 0),
+        expenses: roundToCents(expensesByMonth[m] || 0),
       });
     }
 
@@ -327,7 +340,7 @@ exports.getDashboardSummary = async (req, res, next) => {
       const cat = catKeys[i];
       spendingByCategory.push({
         category: cat,
-        amount: Math.round(categoryTotals[cat] * 100) / 100,
+        amount: roundToCents(categoryTotals[cat]),
       });
     }
     // Sort highest spending first
@@ -356,10 +369,10 @@ exports.getDashboardSummary = async (req, res, next) => {
     const lastMonth = lastMonthDate.toISOString().slice(0, 7);
     const thisYear = String(now.getFullYear());
 
-    let thisMonthIncome = incomeByMonth[currentMonth] || 0;
-    let thisMonthExpenses = expensesByMonth[currentMonth] || 0;
-    let lastMonthIncome = incomeByMonth[lastMonth] || 0;
-    let lastMonthExpenses = expensesByMonth[lastMonth] || 0;
+    const thisMonthIncome = incomeByMonth[currentMonth] || 0;
+    const thisMonthExpenses = expensesByMonth[currentMonth] || 0;
+    const lastMonthIncome = incomeByMonth[lastMonth] || 0;
+    const lastMonthExpenses = expensesByMonth[lastMonth] || 0;
 
     let ytdIncome = 0;
     let ytdExpenses = 0;
@@ -387,12 +400,12 @@ exports.getDashboardSummary = async (req, res, next) => {
       spendingByCategory,
       recentTransactions,
       quickStats: {
-        thisMonthIncome: Math.round(thisMonthIncome * 100) / 100,
-        thisMonthExpenses: Math.round(thisMonthExpenses * 100) / 100,
-        lastMonthIncome: Math.round(lastMonthIncome * 100) / 100,
-        lastMonthExpenses: Math.round(lastMonthExpenses * 100) / 100,
-        ytdIncome: Math.round(ytdIncome * 100) / 100,
-        ytdExpenses: Math.round(ytdExpenses * 100) / 100,
+        thisMonthIncome: roundToCents(thisMonthIncome),
+        thisMonthExpenses: roundToCents(thisMonthExpenses),
+        lastMonthIncome: roundToCents(lastMonthIncome),
+        lastMonthExpenses: roundToCents(lastMonthExpenses),
+        ytdIncome: roundToCents(ytdIncome),
+        ytdExpenses: roundToCents(ytdExpenses),
         momIncomeChangePct: Math.round(momIncomeChange * 10) / 10,
         momExpensesChangePct: Math.round(momExpensesChange * 10) / 10,
       },

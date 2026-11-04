@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { BankAccountsComponent } from './bank-accounts.component';
@@ -13,6 +14,7 @@ describe('BankAccountsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [BankAccountsComponent],
       providers: [
+        provideNoopAnimations(),
         provideRouter([]),
         {
           provide: TellerService,

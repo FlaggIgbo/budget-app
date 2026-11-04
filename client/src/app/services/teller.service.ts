@@ -5,7 +5,7 @@ import { Observable, from, of } from 'rxjs';
 export interface TellerConfig {
   tellerApplicationId: string;
   tellerEnvironment: string;
-  authSandbox?: { phone: string; otp: string };
+  authSandbox?: { email: string; otp: string };
 }
 
 export interface TellerEnrollment {

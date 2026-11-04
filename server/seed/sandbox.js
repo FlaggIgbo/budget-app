@@ -1,6 +1,6 @@
 const db = require('../models');
 
-const SANDBOX_PHONE = '+15555555555';
+const SANDBOX_EMAIL = 'test@example.com';
 
 // Check if we are running in sandbox or dev mode
 function isSandboxEnv() {
@@ -17,11 +17,11 @@ async function seedSandboxUser() {
 
   try {
     const [user] = await db.User.findOrCreate({
-      where: { phone: SANDBOX_PHONE },
-      defaults: { phone: SANDBOX_PHONE },
+      where: { email: SANDBOX_EMAIL },
+      defaults: { email: SANDBOX_EMAIL },
     });
     if (user.isNewRecord) {
-      console.log(`Created sandbox test user: ${SANDBOX_PHONE} (Code: 123456)`);
+      console.log(`Created sandbox test user: ${SANDBOX_EMAIL} (Code: 123456)`);
     }
   } catch (err) {
     console.error('Failed to create test user:', err.message);

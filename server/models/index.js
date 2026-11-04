@@ -33,6 +33,7 @@ const db = {
 // Load models
 db.User = require('./User')(sequelize);
 db.Session = require('./Session')(sequelize);
+db.OtpToken = require('./OtpToken')(sequelize);
 db.Enrollment = require('./Enrollment')(sequelize);
 db.Account = require('./Account')(sequelize);
 

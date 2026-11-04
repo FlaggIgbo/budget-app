@@ -8,11 +8,11 @@ A simple budgeting app to track your net worth, income, expenses, and linked ban
 - **Cash Flow** — Monthly income vs. expenses chart and quick statistics.
 - **Spending by Category** — Visual breakdown of expenses for the current month.
 - **Bank Accounts** — Link and disconnect bank accounts via Teller.io.
-- **Easy Login** — Phone number + verification code login with built-in test credentials.
+- **Easy Login** — Email address + verification code login with built-in test credentials.
 
 ## Tech Stack
 
-- **Frontend**: Angular 19
+- **Frontend**: Angular 19 + Angular Material (Material 3)
 - **Backend**: Node.js + Express
 - **Database**: PostgreSQL (via Sequelize ORM)
 - **Bank Integration**: Teller.io
@@ -50,7 +50,7 @@ App runs at `http://localhost:4200`.
 
 Use these test credentials on the login page:
 
-- **Phone**: `555-555-5555`
+- **Email**: `test@example.com`
 - **Code**: `123456`
 
 ## Testing & Linting
