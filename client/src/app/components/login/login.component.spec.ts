@@ -4,7 +4,6 @@ import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { LoginComponent } from './login.component';
 import { AuthService } from '../../services/auth.service';
-import { TellerService } from '../../services/teller.service';
 
 describe('LoginComponent', () => {
   let component: LoginComponent;
@@ -18,14 +17,9 @@ describe('LoginComponent', () => {
         {
           provide: AuthService,
           useValue: {
+            getAuthConfig: () => of({ authSandbox: { email: 'test@example.com', otp: '123456' } }),
             sendOtp: () => of({ ok: true }),
             verifyOtp: () => of({ ok: true, user: { id: '1', email: 'test@example.com' } }),
-          },
-        },
-        {
-          provide: TellerService,
-          useValue: {
-            getConfig: () => of({ authSandbox: { email: 'test@example.com', otp: '123456' } }),
           },
         },
         { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },

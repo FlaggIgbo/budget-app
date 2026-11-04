@@ -1,21 +1,22 @@
 import { Injectable } from '@angular/core';
 import { ApiService } from './api.service';
+import { AuthService } from './auth.service';
 import { Observable, from, of } from 'rxjs';
 
-export interface TellerConfig {
+export interface BankConfig {
   tellerApplicationId: string;
   tellerEnvironment: string;
   authSandbox?: { email: string; otp: string };
 }
 
-export interface TellerEnrollment {
+export interface BankEnrollment {
   id: string;
   enrollmentId: string;
   institutionName: string;
   createdAt: string;
 }
 
-export interface TellerAccount {
+export interface BankAccountItem {
   id: string;
   enrollment_id: string;
   institution: { id: string; name: string };
@@ -28,7 +29,7 @@ export interface TellerAccount {
   links?: { balances?: string; transactions?: string };
 }
 
-export interface TellerBalance {
+export interface BankBalance {
   available?: number | string;
   ledger?: number | string;
 }
@@ -73,15 +74,7 @@ export interface DashboardSummaryResponse {
   };
 }
 
-declare global {
-  interface Window {
-    TellerConnect?: {
-      setup: (config: TellerConnectConfig) => TellerConnectInstance;
-    };
-  }
-}
-
-export interface TellerConnectConfig {
+export interface BankConnectConfig {
   applicationId: string;
   environment?: string;
   products?: string[];
@@ -93,47 +86,61 @@ export interface TellerConnectConfig {
   onInit?: () => void;
 }
 
-export interface TellerConnectInstance {
+export interface BankConnectInstance {
   open: () => void;
 }
 
-// Service to communicate with Teller bank endpoints
-@Injectable({ providedIn: 'root' })
-export class TellerService {
-  constructor(private api: ApiService) {}
+declare global {
+  interface Window {
+    TellerConnect?: {
+      setup: (config: BankConnectConfig) => BankConnectInstance;
+    };
+  }
+}
 
-  // Get Teller settings
-  getConfig(): Observable<TellerConfig> {
-    return this.api.get<TellerConfig>('/config');
+// Feature service for bank connections, accounts, and dashboard insights
+@Injectable({ providedIn: 'root' })
+export class BankService {
+  constructor(
+    private api: ApiService,
+    private auth: AuthService
+  ) {}
+
+  // Check API health status
+  getHealthStatus(): Observable<{ status: string }> {
+    return this.api.get<{ status: string }>('/health');
+  }
+
+  // Get bank provider configuration
+  getConfig(): Observable<BankConfig> {
+    return this.api.get<BankConfig>('/config');
   }
 
   // Get net worth calculation
   getNetWorth(): Observable<NetWorthResponse> {
-    return this.api.get<NetWorthResponse>('/teller/net-worth');
+    return this.api.get<NetWorthResponse>('/bank/net-worth');
   }
 
   // Get dashboard charts and statistics
   getDashboardSummary(months?: number): Observable<DashboardSummaryResponse> {
-    const path = months
-      ? `/teller/dashboard-summary?months=${months}`
-      : '/teller/dashboard-summary';
+    const path = months ? `/bank/dashboard-summary?months=${months}` : '/bank/dashboard-summary';
     return this.api.get<DashboardSummaryResponse>(path);
   }
 
   // List connected bank enrollments
-  listEnrollments(): Observable<TellerEnrollment[]> {
-    return this.api.get<TellerEnrollment[]>('/teller/enrollments');
+  listEnrollments(): Observable<BankEnrollment[]> {
+    return this.api.get<BankEnrollment[]>('/bank/enrollments');
   }
 
   // Get accounts for a bank
-  getAccounts(enrollmentId: string): Observable<TellerAccount[]> {
-    return this.api.get<TellerAccount[]>(`/teller/enrollments/${enrollmentId}/accounts`);
+  getAccounts(enrollmentId: string): Observable<BankAccountItem[]> {
+    return this.api.get<BankAccountItem[]>(`/bank/enrollments/${enrollmentId}/accounts`);
   }
 
   // Get balance for an account
-  getBalances(accountId: string, enrollmentId: string): Observable<TellerBalance> {
-    return this.api.get<TellerBalance>(
-      `/teller/accounts/${accountId}/balances?enrollmentId=${encodeURIComponent(enrollmentId)}`
+  getBalances(accountId: string, enrollmentId: string): Observable<BankBalance> {
+    return this.api.get<BankBalance>(
+      `/bank/accounts/${accountId}/balances?enrollmentId=${encodeURIComponent(enrollmentId)}`
     );
   }
 
@@ -143,7 +150,7 @@ export class TellerService {
     enrollmentId: string,
     params?: { count?: number; from_date?: string; to_date?: string }
   ): Observable<unknown[]> {
-    let url = `/teller/accounts/${accountId}/transactions?enrollmentId=${encodeURIComponent(enrollmentId)}`;
+    let url = `/bank/accounts/${accountId}/transactions?enrollmentId=${encodeURIComponent(enrollmentId)}`;
     if (params?.count) url += `&count=${params.count}`;
     if (params?.from_date) url += `&from_date=${params.from_date}`;
     if (params?.to_date) url += `&to_date=${params.to_date}`;
@@ -155,8 +162,8 @@ export class TellerService {
     accessToken: string,
     enrollmentId: string,
     institutionName?: string
-  ): Observable<TellerEnrollment> {
-    return this.api.post<TellerEnrollment>('/teller/enrollments', {
+  ): Observable<BankEnrollment> {
+    return this.api.post<BankEnrollment>('/bank/enrollments', {
       accessToken,
       enrollmentId,
       institutionName,
@@ -165,11 +172,16 @@ export class TellerService {
 
   // Disconnect bank
   deleteEnrollment(enrollmentId: string): Observable<void> {
-    return this.api.delete<void>(`/teller/enrollments/${enrollmentId}`);
+    return this.api.delete<void>(`/bank/enrollments/${enrollmentId}`);
   }
 
-  // Load Teller Connect script
-  loadTellerConnect(): Observable<void> {
+  // Log user out
+  logout(): Observable<{ ok: boolean }> {
+    return this.auth.logout();
+  }
+
+  // Load bank connection widget script
+  loadConnectWidget(): Observable<void> {
     if (typeof window === 'undefined') return of(undefined);
     if (window.TellerConnect) return of(undefined);
 
@@ -178,18 +190,18 @@ export class TellerService {
         const script = document.createElement('script');
         script.src = 'https://cdn.teller.io/connect/connect.js';
         script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Teller Connect script'));
+        script.onerror = () => reject(new Error('Failed to load bank connect script'));
         document.body.appendChild(script);
       })
     );
   }
 
-  // Open the Teller popup dialog
-  openConnect(config: TellerConnectConfig): void {
+  // Open the bank connection popup dialog
+  openConnect(config: BankConnectConfig): void {
     if (!window.TellerConnect) {
-      this.loadTellerConnect().subscribe({
+      this.loadConnectWidget().subscribe({
         next: () => this.openConnect(config),
-        error: (err) => console.error('Error loading Teller popup:', err),
+        error: (err) => console.error('Error loading bank connect popup:', err),
       });
       return;
     }

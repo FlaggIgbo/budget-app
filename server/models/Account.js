@@ -43,6 +43,10 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         field: 'institution_name',
       },
+      balance: {
+        type: DataTypes.DECIMAL(12, 2),
+        defaultValue: 0,
+      },
     },
     {
       tableName: 'accounts',

@@ -1,17 +1,18 @@
-const db = require('../models');
+const authService = require('../services/auth.service');
 
 // Get current user profile
 exports.getProfile = async (req, res, next) => {
   try {
-    const user = req.user;
-    if (!user) {
+    if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    res.json({
-      id: user.id,
-      email: user.email,
-    });
+    const profile = await authService.getUserProfile(req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(profile);
   } catch (err) {
     next(err);
   }
@@ -20,19 +21,16 @@ exports.getProfile = async (req, res, next) => {
 // Update user profile
 exports.updateProfile = async (req, res, next) => {
   try {
-    const user = req.user;
-    if (!user) {
+    if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const updated = await db.User.findByPk(user.id, {
-      attributes: ['id', 'email'],
-    });
+    const updated = await authService.updateUserProfile(req.user.id, req.body);
+    if (!updated) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
-    res.json({
-      id: updated.id,
-      email: updated.email,
-    });
+    res.json(updated);
   } catch (err) {
     next(err);
   }

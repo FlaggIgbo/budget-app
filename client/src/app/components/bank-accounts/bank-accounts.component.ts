@@ -8,12 +8,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import {
-  TellerService,
-  TellerEnrollment,
-  TellerAccount,
-  TellerConfig,
-} from '../../services/teller.service';
-import { AuthService } from '../../services/auth.service';
+  BankService,
+  BankEnrollment,
+  BankAccountItem,
+  BankConfig,
+} from '../../services/bank.service';
 
 @Component({
   selector: 'app-bank-accounts',
@@ -194,22 +193,19 @@ import { AuthService } from '../../services/auth.service';
   ],
 })
 export class BankAccountsComponent implements OnInit {
-  config = signal<TellerConfig | null>(null);
-  enrollments = signal<TellerEnrollment[]>([]);
-  accountsByEnrollment = signal<Record<string, TellerAccount[]>>({});
+  config = signal<BankConfig | null>(null);
+  enrollments = signal<BankEnrollment[]>([]);
+  accountsByEnrollment = signal<Record<string, BankAccountItem[]>>({});
   loadingAccounts = signal<Set<string>>(new Set());
   connecting = signal(false);
   disconnecting = signal<string | null>(null);
   error = signal<string | null>(null);
 
-  constructor(
-    private teller: TellerService,
-    private auth: AuthService
-  ) {}
+  constructor(private bank: BankService) {}
 
   ngOnInit() {
-    // 1. Get Teller config
-    this.teller.getConfig().subscribe({
+    // 1. Get bank provider config
+    this.bank.getConfig().subscribe({
       next: (c) => this.config.set(c),
       error: () => this.config.set({ tellerApplicationId: '', tellerEnvironment: 'sandbox' }),
     });
@@ -220,7 +216,7 @@ export class BankAccountsComponent implements OnInit {
 
   // Load user's connected bank list
   loadEnrollments() {
-    this.teller.listEnrollments().subscribe({
+    this.bank.listEnrollments().subscribe({
       next: (list) => {
         this.enrollments.set(list);
         for (const enrollment of list) {
@@ -249,7 +245,7 @@ export class BankAccountsComponent implements OnInit {
   loadAccounts(enrollmentId: string) {
     this.setEnrollmentLoading(enrollmentId, true);
 
-    this.teller.getAccounts(enrollmentId).subscribe({
+    this.bank.getAccounts(enrollmentId).subscribe({
       next: (accounts) => {
         const updatedMap = { ...this.accountsByEnrollment() };
         updatedMap[enrollmentId] = accounts;
@@ -262,7 +258,7 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
-  // Open Teller popup to connect a new bank
+  // Open bank connect popup to connect a new bank
   connectBank() {
     const cfg = this.config();
     if (!cfg || !cfg.tellerApplicationId) {
@@ -272,7 +268,7 @@ export class BankAccountsComponent implements OnInit {
     this.connecting.set(true);
     this.error.set(null);
 
-    this.teller.openConnect({
+    this.bank.openConnect({
       applicationId: cfg.tellerApplicationId,
       environment: cfg.tellerEnvironment || 'sandbox',
       onSuccess: (enrollment) => {
@@ -281,7 +277,7 @@ export class BankAccountsComponent implements OnInit {
         const name = enrollment.enrollment?.institution?.name;
 
         // Save connection to backend
-        this.teller.createEnrollment(token, id, name).subscribe({
+        this.bank.createEnrollment(token, id, name).subscribe({
           next: () => {
             this.loadEnrollments();
             this.connecting.set(false);
@@ -303,7 +299,7 @@ export class BankAccountsComponent implements OnInit {
   disconnect(enrollmentId: string) {
     this.disconnecting.set(enrollmentId);
 
-    this.teller.deleteEnrollment(enrollmentId).subscribe({
+    this.bank.deleteEnrollment(enrollmentId).subscribe({
       next: () => {
         this.loadEnrollments();
         this.disconnecting.set(null);
@@ -318,7 +314,7 @@ export class BankAccountsComponent implements OnInit {
 
   // Log user out
   logout() {
-    this.auth.logout().subscribe({
+    this.bank.logout().subscribe({
       next: () => {
         window.location.assign('/login');
       },

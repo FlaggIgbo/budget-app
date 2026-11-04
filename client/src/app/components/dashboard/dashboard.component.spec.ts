@@ -3,9 +3,7 @@ import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
-import { ApiService } from '../../services/api.service';
-import { AuthService } from '../../services/auth.service';
-import { TellerService } from '../../services/teller.service';
+import { BankService } from '../../services/bank.service';
 
 describe('DashboardComponent', () => {
   let component: DashboardComponent;
@@ -17,11 +15,11 @@ describe('DashboardComponent', () => {
       providers: [
         provideNoopAnimations(),
         provideRouter([]),
-        { provide: ApiService, useValue: { get: () => of({ status: 'ok' }) } },
-        { provide: AuthService, useValue: { logout: () => of({ ok: true }) } },
         {
-          provide: TellerService,
+          provide: BankService,
           useValue: {
+            getHealthStatus: () => of({ status: 'ok' }),
+            logout: () => of({ ok: true }),
             getNetWorth: () =>
               of({
                 netWorth: 1000,

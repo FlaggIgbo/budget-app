@@ -32,7 +32,7 @@ function getAgent() {
   });
 }
 
-// Make HTTP request to Teller API
+// Make HTTP request to Teller API (only this adapter knows Teller exists)
 function tellerRequest(accessToken, method, endpoint, body) {
   const env = process.env.TELLER_ENVIRONMENT || 'sandbox';
   const agent = getAgent();
@@ -87,11 +87,11 @@ function tellerRequest(accessToken, method, endpoint, body) {
             resolve(parsed);
           } else {
             const errorMsg =
-              parsed?.message || parsed?.error || `Teller error code: ${res.statusCode}`;
+              parsed?.message || parsed?.error || `Bank provider error code: ${res.statusCode}`;
             reject(new Error(errorMsg));
           }
         } catch {
-          reject(new Error(rawData || `Teller error code: ${res.statusCode}`));
+          reject(new Error(rawData || `Bank provider error code: ${res.statusCode}`));
         }
       });
     });
@@ -108,16 +108,12 @@ function tellerRequest(accessToken, method, endpoint, body) {
   });
 }
 
-// Helper methods for Teller API endpoints
+// Provider adapter interface for bank operations
 module.exports = {
   getAgent,
-  // Get all accounts
   getAccounts: (token) => tellerRequest(token, 'GET', '/accounts'),
-  // Get one account
   getAccount: (token, accountId) => tellerRequest(token, 'GET', `/accounts/${accountId}`),
-  // Get balances
   getBalances: (token, accountId) => tellerRequest(token, 'GET', `/accounts/${accountId}/balances`),
-  // Get transactions
   getTransactions: (token, accountId, params = {}) => {
     const query = new URLSearchParams(params).toString();
     let url = `/accounts/${accountId}/transactions`;
@@ -126,8 +122,6 @@ module.exports = {
     }
     return tellerRequest(token, 'GET', url);
   },
-  // Delete account
   deleteAccount: (token, accountId) => tellerRequest(token, 'DELETE', `/accounts/${accountId}`),
-  // Disconnect enrollment
   deleteEnrollment: (token) => tellerRequest(token, 'DELETE', '/accounts'),
 };

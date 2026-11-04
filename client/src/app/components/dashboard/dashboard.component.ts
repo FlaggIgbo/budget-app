@@ -10,13 +10,11 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { ApiService } from '../../services/api.service';
-import { AuthService } from '../../services/auth.service';
 import {
-  TellerService,
+  BankService,
   NetWorthResponse,
   DashboardSummaryResponse,
-} from '../../services/teller.service';
+} from '../../services/bank.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -517,13 +515,9 @@ export class DashboardComponent implements OnInit {
     return result;
   });
 
-  constructor(
-    private api: ApiService,
-    private auth: AuthService,
-    private teller: TellerService
-  ) {
+  constructor(private bank: BankService) {
     // Check API health status
-    this.api.get<{ status: string }>('/health').subscribe({
+    this.bank.getHealthStatus().subscribe({
       next: (res) => this.apiStatus.set(res.status),
       error: () => this.apiStatus.set('error'),
     });
@@ -531,7 +525,7 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit() {
     // 1. Load net worth
-    this.teller.getNetWorth().subscribe({
+    this.bank.getNetWorth().subscribe({
       next: (res) => {
         this.netWorth.set(res);
         this.netWorthError.set(false);
@@ -543,7 +537,7 @@ export class DashboardComponent implements OnInit {
     });
 
     // 2. Load dashboard summary
-    this.teller.getDashboardSummary().subscribe({
+    this.bank.getDashboardSummary().subscribe({
       next: (res) => {
         this.summary.set(res);
         this.summaryError.set(false);
@@ -595,7 +589,7 @@ export class DashboardComponent implements OnInit {
 
   // Log user out
   logout() {
-    this.auth.logout().subscribe({
+    this.bank.logout().subscribe({
       next: () => window.location.assign('/login'),
     });
   }

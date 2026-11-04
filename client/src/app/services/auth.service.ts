@@ -7,6 +7,12 @@ export interface User {
   email: string;
 }
 
+export interface AuthConfig {
+  tellerApplicationId?: string;
+  tellerEnvironment?: string;
+  authSandbox?: { email: string; otp: string };
+}
+
 // Service to manage login status and user session
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -18,6 +24,11 @@ export class AuthService {
   loaded = this.loadedSignal.asReadonly();
 
   constructor(private api: ApiService) {}
+
+  // Get auth/sandbox configuration for the login page
+  getAuthConfig(): Observable<AuthConfig> {
+    return this.api.get<AuthConfig>('/config');
+  }
 
   // Check if user is currently logged in
   checkSession(): Observable<User | null> {

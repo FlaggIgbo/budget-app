@@ -7,13 +7,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { ApiService } from '../../services/api.service';
-import { AuthService } from '../../services/auth.service';
+import { UserService, UserProfile } from '../../services/user.service';
 
-export interface Profile {
-  id: string;
-  email: string;
-}
+export type Profile = UserProfile;
 
 @Component({
   selector: 'app-profile',
@@ -114,14 +110,11 @@ export class ProfileComponent implements OnInit {
   profile = signal<Profile | null>(null);
   error = signal<string | null>(null);
 
-  constructor(
-    private api: ApiService,
-    private auth: AuthService
-  ) {}
+  constructor(private userService: UserService) {}
 
   ngOnInit() {
-    // Load profile from API
-    this.api.get<Profile>('/profile').subscribe({
+    // Load profile from UserService
+    this.userService.getProfile().subscribe({
       next: (data) => this.profile.set(data),
       error: () => this.error.set('Failed to load profile'),
     });
@@ -129,7 +122,7 @@ export class ProfileComponent implements OnInit {
 
   // Log user out
   logout() {
-    this.auth.logout().subscribe({
+    this.userService.logout().subscribe({
       next: () => window.location.assign('/login'),
     });
   }

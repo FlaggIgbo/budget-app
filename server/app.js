@@ -44,7 +44,7 @@ app.get('/api/config', (req, res) => {
 require('./models');
 require('./routes/index.routes')(app);
 require('./routes/auth.routes')(app);
-require('./routes/teller.routes')(app);
+require('./routes/bank.routes')(app);
 require('./routes/profile.routes')(app);
 
 // Global error handler

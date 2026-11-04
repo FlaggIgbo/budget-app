@@ -9,7 +9,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
-import { TellerService } from '../../services/teller.service';
 
 @Component({
   selector: 'app-login',
@@ -195,13 +194,12 @@ export class LoginComponent implements OnInit {
 
   constructor(
     private auth: AuthService,
-    private teller: TellerService,
     private router: Router
   ) {}
 
   ngOnInit() {
     // Check if server provides sandbox test credentials
-    this.teller.getConfig().subscribe({
+    this.auth.getAuthConfig().subscribe({
       next: (cfg) => {
         if (cfg.authSandbox) {
           this.sandbox.set(cfg.authSandbox);
