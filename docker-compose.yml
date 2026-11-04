@@ -1,6 +1,7 @@
-# PostgreSQL for Budget App development
+# PostgreSQL and Redis for Budget App development
 # Run: docker compose up -d
-# Connect: localhost:5432 (user: postgres, password: postgres, db: budget_app)
+# Postgres: localhost:5432 (user: postgres, password: postgres, db: budget_app)
+# Redis: localhost:6379
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,6 +16,17 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: budget-app-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5

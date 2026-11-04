@@ -1,5 +1,6 @@
 const db = require('../models');
 const emailService = require('../services/email.service');
+const otpService = require('../services/otp.service');
 
 const COOKIE_NAME = 'session';
 const SANDBOX_EMAIL = 'test@example.com';
@@ -58,17 +59,9 @@ exports.sendOtp = async (req, res, next) => {
       return res.json({ ok: true, message: 'OTP sent (sandbox: use 123456)' });
     }
 
-    // 3. In production: generate 6-digit code, store in DB with 5-minute expiry, and send via SMTP
-    const code = db.OtpToken.generateCode();
-    const expiresAt = db.OtpToken.expiresAt(5);
-
-    await db.OtpToken.destroy({ where: { email } });
-    await db.OtpToken.create({
-      email,
-      code,
-      expiresAt,
-    });
-
+    // 3. In production: generate 6-digit code, store in Redis with 5-minute TTL, and send via SMTP
+    const code = otpService.generateCode();
+    await otpService.saveOtp(email, code);
     await emailService.sendOtpEmail(email, code);
 
     return res.json({ ok: true, message: 'OTP sent' });
@@ -104,22 +97,13 @@ exports.verifyOtp = async (req, res, next) => {
       }
     }
 
-    // 4. Production / DB check: find matching OTP token, verify expiry, and delete upon match
-    const otpToken = await db.OtpToken.findOne({
-      where: { email, code: otp },
-      order: [['createdAt', 'DESC']],
-    });
-
-    if (!otpToken) {
-      return res.status(401).json({ error: 'Invalid OTP' });
+    // 4. Production / Redis check: look up OTP in Redis and delete upon match
+    const storedCode = await otpService.getOtp(email);
+    if (!storedCode || storedCode !== otp) {
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
-    if (new Date() > otpToken.expiresAt) {
-      await otpToken.destroy();
-      return res.status(401).json({ error: 'OTP expired' });
-    }
-
-    await db.OtpToken.destroy({ where: { email } });
+    await otpService.deleteOtp(email);
 
     return await loginUserWithEmail(email, res);
   } catch (err) {

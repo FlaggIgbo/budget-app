@@ -1,5 +1,5 @@
 // Auth API tests
-const { describe, it, before, after, afterEach } = require('node:test');
+const { describe, it, before, afterEach } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
 
@@ -7,7 +7,9 @@ describe('Auth API', () => {
   let app;
   let db;
   let emailService;
+  let otpService;
   let sentEmails = [];
+  let fakeRedisStore = new Map();
 
   before(async () => {
     process.env.NODE_ENV = 'test';
@@ -15,7 +17,9 @@ describe('Auth API', () => {
     app = require('../app');
     db = require('../models');
     emailService = require('../services/email.service');
+    otpService = require('../services/otp.service');
 
+    // Mock email sender
     emailService.setTransporter({
       sendMail: async (mailOptions) => {
         sentEmails.push(mailOptions);
@@ -23,17 +27,28 @@ describe('Auth API', () => {
       },
     });
 
-    await db.sequelize.sync({ force: true });
-  });
+    // Mock Redis client with TTL tracking
+    otpService.setClient({
+      set: async (key, value, options) => {
+        fakeRedisStore.set(key, { value, ttl: options?.EX || null });
+      },
+      get: async (key) => {
+        const entry = fakeRedisStore.get(key);
+        return entry ? entry.value : null;
+      },
+      del: async (key) => {
+        fakeRedisStore.delete(key);
+      },
+    });
 
-  after(async () => {
-    await db.sequelize.close();
+    await db.sequelize.sync({ force: true });
   });
 
   afterEach(() => {
     process.env.NODE_ENV = 'test';
     process.env.TELLER_ENVIRONMENT = 'sandbox';
     sentEmails = [];
+    fakeRedisStore.clear();
   });
 
   describe('POST /api/auth/send-otp', () => {
@@ -54,7 +69,7 @@ describe('Auth API', () => {
       assert.strictEqual(res.body.ok, true);
     });
 
-    it('generates, stores, and emails 6-digit OTP in production mode', async () => {
+    it('generates, stores in Redis with 5-min TTL, and emails 6-digit OTP in production mode', async () => {
       process.env.NODE_ENV = 'production';
       process.env.TELLER_ENVIRONMENT = 'production';
 
@@ -63,14 +78,14 @@ describe('Auth API', () => {
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
 
-      const tokenRecord = await db.OtpToken.findOne({ where: { email } });
-      assert.ok(tokenRecord, 'expected OTP token stored in database');
-      assert.strictEqual(tokenRecord.code.length, 6);
-      assert.ok(tokenRecord.expiresAt > new Date(), 'expected future expiration timestamp');
+      const redisEntry = fakeRedisStore.get(otpService.getOtpKey(email));
+      assert.ok(redisEntry, 'expected OTP stored in Redis');
+      assert.strictEqual(redisEntry.value.length, 6);
+      assert.strictEqual(redisEntry.ttl, 300, 'expected 300-second (5-minute) TTL');
 
       assert.strictEqual(sentEmails.length, 1);
       assert.strictEqual(sentEmails[0].to, email);
-      assert.ok(sentEmails[0].text.includes(tokenRecord.code));
+      assert.ok(sentEmails[0].text.includes(redisEntry.value));
     });
   });
 
@@ -108,43 +123,32 @@ describe('Auth API', () => {
       );
     });
 
-    it('verifies stored OTP in production and deletes token upon match', async () => {
+    it('verifies stored OTP from Redis in production and deletes key upon match', async () => {
       process.env.NODE_ENV = 'production';
       process.env.TELLER_ENVIRONMENT = 'production';
 
       const email = 'verifyprod@example.com';
       await request(app).post('/api/auth/send-otp').send({ email });
-      const tokenRecord = await db.OtpToken.findOne({ where: { email } });
-      assert.ok(tokenRecord);
+      const code = await otpService.getOtp(email);
+      assert.ok(code);
 
-      const res = await request(app)
-        .post('/api/auth/verify-otp')
-        .send({ email, otp: tokenRecord.code });
+      const res = await request(app).post('/api/auth/verify-otp').send({ email, otp: code });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.ok, true);
       assert.strictEqual(res.body.user?.email, email);
 
-      const remaining = await db.OtpToken.findOne({ where: { email } });
-      assert.strictEqual(remaining, null, 'expected OTP token to be deleted after verification');
+      const remaining = await otpService.getOtp(email);
+      assert.strictEqual(remaining, null, 'expected OTP key to be deleted after verification');
     });
 
-    it('rejects expired OTP and deletes token', async () => {
+    it('rejects missing or expired OTP when Redis key has expired', async () => {
       process.env.NODE_ENV = 'production';
       process.env.TELLER_ENVIRONMENT = 'production';
 
       const email = 'expired@example.com';
-      await db.OtpToken.create({
-        email,
-        code: '654321',
-        expiresAt: new Date(Date.now() - 60 * 1000),
-      });
-
       const res = await request(app).post('/api/auth/verify-otp').send({ email, otp: '654321' });
       assert.strictEqual(res.status, 401);
-      assert.ok(res.body.error?.toLowerCase().includes('expired'));
-
-      const remaining = await db.OtpToken.findOne({ where: { email } });
-      assert.strictEqual(remaining, null);
+      assert.ok(res.body.error?.toLowerCase().includes('invalid or expired'));
     });
   });
 });
