@@ -20,19 +20,19 @@ describe('Health & Config API', () => {
   });
 
   describe('GET /api/config', () => {
-    it('returns teller config', async () => {
+    it('returns plaid config', async () => {
       const res = await request(app).get('/api/config');
       assert.strictEqual(res.status, 200);
-      assert.ok('tellerApplicationId' in res.body);
-      assert.ok('tellerEnvironment' in res.body);
+      assert.ok('plaidConfigured' in res.body);
+      assert.ok('plaidEnvironment' in res.body);
     });
 
     it('includes authSandbox in sandbox mode', async () => {
-      process.env.TELLER_ENVIRONMENT = 'sandbox';
+      process.env.PLAID_ENV = 'sandbox';
       const res = await request(app).get('/api/config');
       assert.strictEqual(res.status, 200);
       assert.ok(res.body.authSandbox);
-      assert.strictEqual(res.body.authSandbox.email, 'test@example.com');
+      assert.strictEqual(res.body.authSandbox.phone, '+15551234567');
       assert.strictEqual(res.body.authSandbox.otp, '123456');
     });
   });

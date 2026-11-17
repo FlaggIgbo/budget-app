@@ -1,8 +1,9 @@
 const db = require('../models');
-const bankAdapter = require('./teller.adapter');
+const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
 const syncWorker = require('./sync.worker');
 const disconnectHandler = require('./disconnect.handler');
+const emailService = require('./email.service');
 
 // ============================================================================
 // BANK SERVICE (API SERVER BUSINESS LOGIC)
@@ -15,18 +16,36 @@ function roundToCents(amount) {
   return Math.round(amount * 100) / 100;
 }
 
-// Get Teller Connect UI configuration (equivalent to POST /link-token)
+// Get Plaid public configuration
 function getConnectConfig() {
   return bankAdapter.getConnectConfig();
 }
 
-// Save bank connection in Secrets Vault and run initial Sync Worker
-// (Equivalent to POST /exchange-token and POST /enrollments)
-async function createEnrollment(userId, { accessToken, enrollmentId, institutionName }) {
+// Create a Plaid Link token for the authenticated user (POST /link-token)
+async function createLinkToken(userId) {
+  return await bankAdapter.createLinkToken(userId);
+}
+
+// Exchange public_token (if provided), save encrypted access_token in Secrets Vault, and run initial Sync Worker
+// (POST /exchange-token and POST /enrollments)
+async function createEnrollment(
+  userId,
+  { publicToken, accessToken, enrollmentId, institutionName }
+) {
+  let resolvedAccessToken = accessToken;
+  let resolvedEnrollmentId = enrollmentId;
+
+  // Exchange Plaid public_token for permanent access_token + item_id when needed
+  if (publicToken && !resolvedAccessToken) {
+    const exchanged = await bankAdapter.exchangePublicToken(publicToken);
+    resolvedAccessToken = exchanged.access_token;
+    resolvedEnrollmentId = resolvedEnrollmentId || exchanged.item_id;
+  }
+
   // Step 1: Store encrypted access_token in Secrets Vault (enrollments table)
   const enrollment = await secretsVault.storeEnrollmentToken(userId, {
-    enrollmentId,
-    accessToken,
+    enrollmentId: resolvedEnrollmentId,
+    accessToken: resolvedAccessToken,
     institutionName,
   });
 
@@ -112,7 +131,11 @@ async function listStoredAccounts(userId, enrollmentId = null) {
 
     const balance = parseFloat(a.balance) || 0;
     const accountType = (a.type || '').toLowerCase();
-    const isAsset = accountType === 'deposit' || (accountType !== 'credit' && balance >= 0);
+    const isAsset =
+      accountType === 'depository' ||
+      accountType === 'deposit' ||
+      accountType === 'investment' ||
+      (accountType !== 'credit' && accountType !== 'loan' && balance >= 0);
 
     results.push({
       id: a.accountId,
@@ -213,7 +236,7 @@ async function getAccountsForEnrollment(userId, enrollmentId) {
   return accounts;
 }
 
-// Get live balance for a specific bank account from Teller
+// Get live balance for a specific bank account from Plaid
 async function getBalancesForAccount(userId, enrollmentId, accountId) {
   const enrollment = await db.Enrollment.findOne({
     where: { enrollmentId, userId },
@@ -227,7 +250,7 @@ async function getBalancesForAccount(userId, enrollmentId, accountId) {
   return await bankAdapter.getBalances(accessToken, accountId);
 }
 
-// Get live transactions for a specific bank account from Teller
+// Get live transactions for a specific bank account from Plaid
 async function getTransactionsForAccount(userId, enrollmentId, accountId, params = {}) {
   const enrollment = await db.Enrollment.findOne({
     where: { enrollmentId, userId },
@@ -253,8 +276,9 @@ async function getNetWorth(userId) {
     const a = storedAccounts[i];
     const balance = parseFloat(a.balance) || 0;
     const accountType = (a.type || '').toLowerCase();
-    const isAsset = accountType === 'deposit';
-    const isLiability = accountType === 'credit';
+    const isAsset =
+      accountType === 'depository' || accountType === 'deposit' || accountType === 'investment';
+    const isLiability = accountType === 'credit' || accountType === 'loan';
 
     if (isAsset) {
       totalAssets += balance;
@@ -464,12 +488,31 @@ async function deleteEnrollment(userId, enrollmentId) {
   return await disconnectHandler.disconnectInstitution(userId, enrollmentId);
 }
 
+// TODO: Send a personal finance summary digest to the user's verified profile email
+async function sendFinanceSummaryToUserEmail(userId) {
+  // TODO: Wire this up to a scheduled job or user-triggered endpoint once the email digest template
+  // in emailService.sendFinanceSummaryEmail() is finalized.
+  const user = await db.User.findByPk(userId);
+  if (!user || !user.email) {
+    return { sent: false, reason: 'User does not have a verified email address on their profile' };
+  }
+
+  const netWorth = await getNetWorth(userId);
+  const dashboardSummary = await getDashboardSummary(userId, 1);
+
+  return await emailService.sendFinanceSummaryEmail(user.email, {
+    netWorth,
+    dashboardSummary,
+  });
+}
+
 module.exports = {
   encryptToken: secretsVault.encryptToken,
   decryptToken: secretsVault.decryptToken,
   syncEnrollmentData: syncWorker.syncEnrollmentData,
   syncAllUserEnrollments: syncWorker.syncAllUserEnrollments,
   getConnectConfig,
+  createLinkToken,
   createEnrollment,
   syncUserTransactions,
   listEnrollments,
@@ -481,4 +524,5 @@ module.exports = {
   getNetWorth,
   getDashboardSummary,
   deleteEnrollment,
+  sendFinanceSummaryToUserEmail,
 };

@@ -3,7 +3,7 @@ const requireAuth = require('../middleware/requireAuth');
 
 // Bank connection, sync worker, and dashboard routes (all require login)
 module.exports = (app) => {
-  // Teller Connect UI configuration
+  // Plaid Link token creation
   app.post('/api/bank/link-token', requireAuth, controller.createLinkToken);
 
   // Bank enrollment & token exchange

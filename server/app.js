@@ -23,16 +23,19 @@ if (process.env.CORS_ORIGIN) {
 }
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
-// Get Teller public configuration
+// Get Plaid public configuration
 app.get('/api/config', (req, res) => {
   const config = {
-    tellerApplicationId: process.env.TELLER_APPLICATION_ID || '',
-    tellerEnvironment: process.env.TELLER_ENVIRONMENT || 'sandbox',
+    plaidConfigured: Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET),
+    plaidEnvironment: process.env.PLAID_ENV || 'sandbox',
   };
 
-  // Provide test email and code when in sandbox mode
+  // Provide test phone and code when in sandbox mode
   if (isSandboxMode()) {
-    config.authSandbox = { email: 'test@example.com', otp: '123456' };
+    config.authSandbox = {
+      phone: '+15551234567',
+      otp: '123456',
+    };
   }
 
   res.json(config);

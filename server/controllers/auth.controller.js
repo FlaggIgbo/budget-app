@@ -12,10 +12,10 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
-// POST /api/otp/request - Generate 6-digit code, store in Redis with TTL, and send via Nodemailer
+// POST /api/otp/request - Generate 6-digit code, store in Redis with TTL, and send via Twilio SMS
 exports.requestOtp = async (req, res, next) => {
   try {
-    const result = await otpService.requestOtp(req.body?.email);
+    const result = await otpService.requestOtp(req.body?.phone);
     if (result.error) {
       return res.status(result.status || 400).json({ error: result.error });
     }
@@ -30,7 +30,7 @@ exports.requestOtp = async (req, res, next) => {
 exports.verifyOtp = async (req, res, next) => {
   try {
     const code = req.body?.code ?? req.body?.otp;
-    const result = await otpService.verifyOtp(req.body?.email, code);
+    const result = await otpService.verifyOtp(req.body?.phone, code);
     if (result.error) {
       return res.status(result.status || 400).json({ error: result.error });
     }

@@ -1,10 +1,10 @@
 const db = require('../models');
-const bankAdapter = require('./teller.adapter');
+const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
 
 // ============================================================================
 // DISCONNECT HANDLER
-// Revokes enrollment access at Teller API (DELETE /accounts) and purges all
+// Revokes enrollment access at Plaid API (POST /item/remove) and purges all
 // associated transactions, accounts, and enrollment records from the database.
 // ============================================================================
 
@@ -18,12 +18,12 @@ async function disconnectInstitution(userId, enrollmentId) {
     return false;
   }
 
-  // Step 2: Decrypt the access_token and call Teller API DELETE /accounts
+  // Step 2: Decrypt the access_token and call Plaid API POST /item/remove
   const accessToken = secretsVault.decryptToken(enrollment.accessToken);
   try {
     await bankAdapter.deleteEnrollment(accessToken);
   } catch {
-    // Even if the token was already revoked on Teller's side, still purge local data
+    // Even if the token was already revoked on Plaid's side, still purge local data
   }
 
   // Step 3: Cascade delete transactions, accounts, and enrollment in App Database

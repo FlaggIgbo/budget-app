@@ -4,8 +4,8 @@ import { AuthService } from './auth.service';
 import { Observable, from, of } from 'rxjs';
 
 export interface BankConfig {
-  tellerApplicationId: string;
-  tellerEnvironment: string;
+  plaidConfigured: boolean;
+  plaidEnvironment: string;
   authSandbox?: { email: string; otp: string };
 }
 
@@ -19,15 +19,14 @@ export interface BankEnrollment {
 
 export interface BankAccountItem {
   id: string;
-  enrollment_id: string;
-  institution: { id: string; name: string };
+  enrollment_id?: string;
+  institution?: { id: string; name: string };
   type: string;
   subtype: string;
   name: string;
   last_four: string;
-  currency: string;
-  status: string;
-  links?: { balances?: string; transactions?: string };
+  currency?: string;
+  status?: string;
 }
 
 export interface StoredTransaction {
@@ -76,33 +75,41 @@ export interface DashboardSummaryResponse {
   };
 }
 
-export interface BankConnectConfig {
-  applicationId: string;
-  environment?: string;
-  products?: string[];
-  onSuccess: (enrollment: {
-    accessToken: string;
-    enrollment?: { id: string; institution?: { name: string } };
-  }) => void;
-  onExit?: () => void;
-  onInit?: () => void;
+export interface PlaidLinkMetadata {
+  institution?: {
+    name?: string;
+    institution_id?: string;
+  };
+  link_session_id?: string;
 }
 
-export interface BankConnectInstance {
+export interface BankConnectConfig {
+  linkToken: string;
+  onSuccess: (publicToken: string, metadata?: PlaidLinkMetadata) => void;
+  onExit?: () => void;
+}
+
+export interface PlaidHandlerInstance {
   open: () => void;
+  exit?: () => void;
+  destroy?: () => void;
 }
 
 declare global {
   interface Window {
-    TellerConnect?: {
-      setup: (config: BankConnectConfig) => BankConnectInstance;
+    Plaid?: {
+      create: (config: {
+        token: string;
+        onSuccess: (publicToken: string, metadata: PlaidLinkMetadata) => void;
+        onExit?: () => void;
+      }) => PlaidHandlerInstance;
     };
   }
 }
 
 // ============================================================================
 // BANK SERVICE (FRONTEND)
-// Connects the Browser (Teller Connect UI & Finance Dashboard) to the API Server
+// Connects the Browser (Plaid Link UI & Finance Dashboard) to the API Server
 // ============================================================================
 @Injectable({ providedIn: 'root' })
 export class BankService {
@@ -116,19 +123,24 @@ export class BankService {
     return this.api.get<{ status: string }>('/health');
   }
 
-  // Get Teller public configuration
+  // Get Plaid public configuration
   getConfig(): Observable<BankConfig> {
     return this.api.get<BankConfig>('/config');
   }
 
-  // POST /bank/exchange-token -> Store encrypted access_token in Secrets Vault & sync
+  // POST /bank/link-token -> Create a short-lived Plaid Link token
+  createLinkToken(): Observable<{ link_token: string }> {
+    return this.api.post<{ link_token: string }>('/bank/link-token', {});
+  }
+
+  // POST /bank/exchange-token -> Exchange public_token, store encrypted access_token & sync
   exchangeToken(
-    accessToken: string,
-    enrollmentId: string,
+    publicToken: string,
+    enrollmentId?: string,
     institutionName?: string
   ): Observable<BankEnrollment> {
     return this.api.post<BankEnrollment>('/bank/exchange-token', {
-      accessToken,
+      public_token: publicToken,
       enrollmentId,
       institutionName,
     });
@@ -161,7 +173,7 @@ export class BankService {
     return this.api.get<BankAccountItem[]>(`/bank/enrollments/${enrollmentId}/accounts`);
   }
 
-  // Disconnect bank (calls Disconnect Handler -> Teller DELETE /accounts + DB cascade delete)
+  // Disconnect bank (calls Disconnect Handler -> Plaid POST /item/remove + DB cascade delete)
   deleteEnrollment(enrollmentId: string): Observable<void> {
     return this.api.delete<void>(`/bank/enrollments/${enrollmentId}`);
   }
@@ -171,41 +183,38 @@ export class BankService {
     return this.auth.logout();
   }
 
-  // Load Teller Connect UI widget script from Teller CDN
+  // Load Plaid Link UI widget script from Plaid CDN
   loadConnectWidget(): Observable<void> {
     if (typeof window === 'undefined') return of(undefined);
-    if (window.TellerConnect) return of(undefined);
+    if (window.Plaid) return of(undefined);
 
     return from(
       new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = 'https://cdn.teller.io/connect/connect.js';
+        script.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
         script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Failed to load Teller Connect script'));
+        script.onerror = () => reject(new Error('Failed to load Plaid Link script'));
         document.body.appendChild(script);
       })
     );
   }
 
-  // Open Teller Connect UI modal (Select institution, login, consent)
+  // Open Plaid Link UI modal (Select institution, login, consent)
   openConnect(config: BankConnectConfig): void {
-    if (!window.TellerConnect) {
+    if (!window.Plaid) {
       this.loadConnectWidget().subscribe({
         next: () => this.openConnect(config),
-        error: (err) => console.error('Error loading Teller Connect popup:', err),
+        error: (err) => console.error('Error loading Plaid Link popup:', err),
       });
       return;
     }
 
-    const instance = window.TellerConnect.setup({
-      applicationId: config.applicationId,
-      environment: config.environment || 'sandbox',
-      products: config.products || ['balance', 'transactions', 'verify'],
-      onSuccess: config.onSuccess,
+    const handler = window.Plaid.create({
+      token: config.linkToken,
+      onSuccess: (publicToken, metadata) => config.onSuccess(publicToken, metadata),
       onExit: config.onExit,
-      onInit: config.onInit,
     });
 
-    instance.open();
+    handler.open();
   }
 }

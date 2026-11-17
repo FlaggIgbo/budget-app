@@ -33,8 +33,43 @@ function isValidEmail(email) {
   return true;
 }
 
+// Normalize phone number to E.164 format (e.g. "+15551234567")
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== 'string') {
+    return '';
+  }
+
+  const trimmed = phone.trim();
+  const hasPlus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (!digits) {
+    return '';
+  }
+
+  if (hasPlus) {
+    return `+${digits}`;
+  }
+
+  // Default 10-digit US numbers to +1
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+
+  return `+${digits}`;
+}
+
+// Validate E.164 phone number (+ followed by 7 to 15 digits)
+function isValidPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) {
+    return false;
+  }
+  return /^\+[1-9]\d{6,14}$/.test(normalized);
+}
+
 module.exports = (sequelize) => {
-  // User table stores email addresses
+  // User table: phone is the primary login identifier; email is optional on the profile
   const User = sequelize.define(
     'User',
     {
@@ -43,21 +78,31 @@ module.exports = (sequelize) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      phone: {
+        type: DataTypes.STRING(32),
+        allowNull: false,
+        unique: true,
+      },
       email: {
         type: DataTypes.STRING(255),
-        allowNull: false,
+        allowNull: true,
         unique: true,
       },
     },
     {
       tableName: 'users',
       underscored: true,
-      indexes: [{ fields: ['email'], unique: true }],
+      indexes: [
+        { fields: ['phone'], unique: true },
+        { fields: ['email'], unique: true },
+      ],
     }
   );
 
   User.normalizeEmail = normalizeEmail;
   User.isValidEmail = isValidEmail;
+  User.normalizePhone = normalizePhone;
+  User.isValidPhone = isValidPhone;
 
   return User;
 };

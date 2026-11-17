@@ -7,15 +7,15 @@ A simple budgeting app to track your net worth, income, expenses, and linked ban
 - **Net Worth** — See total assets, liabilities, and overall net worth.
 - **Cash Flow** — Monthly income vs. expenses chart and quick statistics.
 - **Spending by Category** — Visual breakdown of expenses for the current month.
-- **Bank Accounts** — Link and disconnect bank accounts via Teller.io.
-- **Easy Login** — Email address + verification code login with built-in test credentials.
+- **Bank Accounts** — Link and disconnect bank accounts via Plaid.
+- **Easy Login** — Phone number + SMS verification code login with built-in test credentials, plus verified email linking on your Profile for personal finance summaries.
 
 ## Tech Stack
 
 - **Frontend**: Angular 19 + Angular Material (Material 3)
 - **Backend**: Node.js + Express
 - **Database**: PostgreSQL (via Sequelize ORM)
-- **Bank Integration**: Teller.io
+- **Bank Integration**: Plaid (Plaid Link + REST API)
 
 ## Quick Start
 
@@ -50,7 +50,7 @@ App runs at `http://localhost:4200`.
 
 Use these test credentials on the login page:
 
-- **Email**: `test@example.com`
+- **Phone**: `+15551234567`
 - **Code**: `123456`
 
 ## Testing & Linting

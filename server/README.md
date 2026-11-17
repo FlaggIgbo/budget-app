@@ -1,6 +1,6 @@
 # Budget App API
 
-Express + Node.js backend connecting to PostgreSQL and Teller.io.
+Express + Node.js backend connecting to PostgreSQL and Plaid.
 
 ## Setup
 
@@ -15,14 +15,15 @@ API runs on port `4000`.
 ## API Endpoints
 
 - `GET /api/health` — Check server status
-- `GET /api/config` — Get Teller settings
+- `GET /api/config` — Get Plaid settings
 - `POST /api/otp/request` — Send login code
 - `POST /api/otp/verify` — Verify code and log in
 - `POST /api/auth/logout` — Log out
 - `GET /api/auth/me` — Get current user
 - `GET /api/profile` — Get profile info
+- `POST /api/bank/link-token` — Create Plaid Link token
 - `GET /api/bank/net-worth` — Calculate net worth
 - `GET /api/bank/dashboard-summary` — Get monthly summary & stats
 - `GET /api/bank/enrollments` — List connected banks
-- `POST /api/bank/exchange-token` — Save bank connection
+- `POST /api/bank/exchange-token` — Exchange Plaid public token & save bank connection
 - `DELETE /api/bank/enrollments/:id` — Disconnect bank

@@ -1,176 +1,168 @@
 const db = require('../models');
-const bankAdapter = require('./teller.adapter');
+const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
 
 // ============================================================================
 // SYNC WORKER
-// Syncs accounts, balances, and transactions from Teller API into PostgreSQL,
-// tracking a syncCursor (latest transaction ID) per account and enrollment.
+// Syncs accounts, balances, and transactions from Plaid API into PostgreSQL,
+// tracking a syncCursor per enrollment and account via /transactions/sync.
 // ============================================================================
 
-// Helper: Fetch new transactions for one account using Teller's cursor pagination (from_id)
-async function fetchAccountTransactionsWithCursor(
-  accessToken,
-  accountId,
-  previousCursor,
-  startStr,
-  endStr
-) {
-  const collectedTransactions = [];
-  let pageCursor = null;
+// Helper: Fetch incremental transactions for a Plaid Item using cursor pagination
+async function fetchItemTransactionsWithCursor(accessToken, initialCursor) {
+  const addedOrModified = [];
+  const removedIds = [];
+  let cursor = initialCursor || null;
   const pageSize = 250;
   const maxPages = 4; // Up to 1,000 transactions per sync
 
   for (let page = 0; page < maxPages; page++) {
-    const queryParams = {
-      start_date: startStr,
-      end_date: endStr,
-      count: pageSize,
-    };
-
-    // In Teller API, from_id fetches transactions older than the given transaction ID
-    if (pageCursor) {
-      queryParams.from_id = pageCursor;
-    }
-
-    const pageItems = await bankAdapter.getTransactions(accessToken, accountId, queryParams);
-    if (!Array.isArray(pageItems) || pageItems.length === 0) {
+    const syncPage = await bankAdapter.syncTransactions(accessToken, cursor, pageSize);
+    if (!syncPage) {
       break;
     }
 
-    let reachedPreviousCursor = false;
-    for (let i = 0; i < pageItems.length; i++) {
-      const txn = pageItems[i];
-      if (!txn || !txn.id) {
-        continue;
+    if (Array.isArray(syncPage.added)) {
+      for (let i = 0; i < syncPage.added.length; i++) {
+        addedOrModified.push(syncPage.added[i]);
       }
-
-      // If we hit the transaction we already synced last time, we can stop paging older ones
-      if (previousCursor && txn.id === previousCursor) {
-        reachedPreviousCursor = true;
-        break;
-      }
-
-      collectedTransactions.push(txn);
     }
 
-    if (reachedPreviousCursor || pageItems.length < pageSize) {
-      break;
+    if (Array.isArray(syncPage.modified)) {
+      for (let i = 0; i < syncPage.modified.length; i++) {
+        addedOrModified.push(syncPage.modified[i]);
+      }
     }
 
-    // Set cursor to the last transaction ID in this page to fetch the next page
-    const lastTxn = pageItems[pageItems.length - 1];
-    pageCursor = lastTxn?.id || null;
-    if (!pageCursor) {
+    if (Array.isArray(syncPage.removed)) {
+      for (let i = 0; i < syncPage.removed.length; i++) {
+        removedIds.push(syncPage.removed[i]);
+      }
+    }
+
+    cursor = syncPage.nextCursor || cursor;
+
+    if (!syncPage.hasMore) {
       break;
     }
   }
 
-  return collectedTransactions;
+  return {
+    transactions: addedOrModified,
+    removedIds,
+    nextCursor: cursor,
+  };
 }
 
-// Sync all accounts, balances, and transactions for a single Teller enrollment
+// Sync all accounts, balances, and transactions for a single Plaid enrollment (Item)
 async function syncEnrollmentData(enrollment, userId) {
   // Step 1: Decrypt the access_token from the Secrets Vault
   const accessToken = secretsVault.decryptToken(enrollment.accessToken);
 
-  // Step 2: Fetch the user's accounts from Teller (GET /accounts)
-  const tellerAccounts = await bankAdapter.getAccounts(accessToken);
-  const accountList = Array.isArray(tellerAccounts) ? tellerAccounts : [];
+  // Step 2: Fetch the user's accounts (and balances) from Plaid (/accounts/get)
+  const plaidAccounts = await bankAdapter.getAccounts(accessToken);
+  const accountList = Array.isArray(plaidAccounts) ? plaidAccounts : [];
   const defaultBankName = enrollment.institutionName || null;
+  const todayStr = new Date().toISOString().slice(0, 10);
 
-  // Date window for syncing transactions (last 12 months)
-  const now = new Date();
-  const startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
-  const startStr = startDate.toISOString().slice(0, 10);
-  const endStr = now.toISOString().slice(0, 10);
-
-  let latestEnrollmentCursor = enrollment.syncCursor || null;
-
+  // Build map of accountId -> account info for transaction association
+  const accountMap = {};
   for (let i = 0; i < accountList.length; i++) {
-    const tellerAccount = accountList[i];
+    const acct = accountList[i];
+    accountMap[acct.id] = acct;
+  }
 
-    // Look up existing account record so we can read its saved syncCursor
-    const existingAccount = await db.Account.findOne({
-      where: { accountId: tellerAccount.id },
-    });
-    const previousAccountCursor = existingAccount?.syncCursor || null;
+  // Step 3: Incrementally sync transactions using Plaid's /transactions/sync cursor
+  let latestEnrollmentCursor = enrollment.syncCursor || null;
+  try {
+    const syncResult = await fetchItemTransactionsWithCursor(accessToken, latestEnrollmentCursor);
+    latestEnrollmentCursor = syncResult.nextCursor || latestEnrollmentCursor;
 
-    // Step 3: Fetch balance for this account from Teller (GET /accounts/:id/balances)
-    let balanceValue;
-    try {
-      const balances = await bankAdapter.getBalances(accessToken, tellerAccount.id);
-      const rawBalance = balances?.ledger ?? balances?.available ?? 0;
-      balanceValue = parseFloat(rawBalance) || 0;
-    } catch {
-      balanceValue = existingAccount ? parseFloat(existingAccount.balance) || 0 : 0;
-    }
+    // Upsert added and modified transactions
+    for (let i = 0; i < syncResult.transactions.length; i++) {
+      const t = syncResult.transactions[i];
+      if (!t || !t.id) {
+        continue;
+      }
 
-    const institutionName = defaultBankName || tellerAccount.institution?.name || null;
+      const matchedAccount = accountMap[t.account_id] || accountList[0] || {};
+      const institutionName = defaultBankName || matchedAccount.institution?.name || null;
 
-    // Step 4: Fetch transactions from Teller (GET /accounts/:id/transactions)
-    let newestAccountCursor = previousAccountCursor;
-    try {
-      const txns = await fetchAccountTransactionsWithCursor(
-        accessToken,
-        tellerAccount.id,
-        previousAccountCursor,
-        startStr,
-        endStr
+      await db.Transaction.upsert(
+        {
+          transactionId: t.id,
+          accountId: t.account_id || matchedAccount.id || 'unknown',
+          enrollmentId: enrollment.enrollmentId,
+          userId,
+          date: t.date || todayStr,
+          description: t.description || 'Transaction',
+          amount: parseFloat(t.amount) || 0,
+          category: t.category || 'Uncategorized',
+          accountName: matchedAccount.name || 'Account',
+          institutionName,
+        },
+        { conflictFields: ['transaction_id'] }
       );
-
-      // Teller returns newest transactions first, so index 0 is the new sync cursor
-      if (txns.length > 0 && txns[0].id) {
-        newestAccountCursor = txns[0].id;
-        latestEnrollmentCursor = txns[0].id;
-      }
-
-      // Save each transaction into the App Database
-      for (let j = 0; j < txns.length; j++) {
-        const t = txns[j];
-        if (!t.id) {
-          continue;
-        }
-
-        await db.Transaction.upsert(
-          {
-            transactionId: t.id,
-            accountId: t.account_id || tellerAccount.id,
-            enrollmentId: enrollment.enrollmentId,
-            userId,
-            date: t.date || endStr,
-            description: t.description || 'Transaction',
-            amount: parseFloat(t.amount) || 0,
-            category: t.details?.category || 'Uncategorized',
-            accountName: tellerAccount.name,
-            institutionName,
-          },
-          { conflictFields: ['transaction_id'] }
-        );
-      }
-    } catch {
-      // If transactions fail for one account, continue syncing the remaining accounts
     }
 
-    // Step 5: Save or update account + balance + syncCursor in PostgreSQL
+    // Remove deleted transactions reported by Plaid
+    if (syncResult.removedIds.length > 0) {
+      await db.Transaction.destroy({
+        where: {
+          transactionId: syncResult.removedIds,
+          userId,
+        },
+      });
+    }
+  } catch {
+    // Allow account/balance sync to proceed even if transaction sync fails
+  }
+
+  // Step 4: Save or update each account + balance + syncCursor in PostgreSQL
+  for (let i = 0; i < accountList.length; i++) {
+    const plaidAccount = accountList[i];
+    const existingAccount = await db.Account.findOne({
+      where: { accountId: plaidAccount.id },
+    });
+
+    let balanceValue;
+    const rawCurrent =
+      plaidAccount.balances?.current ??
+      plaidAccount.balances?.ledger ??
+      plaidAccount.balances?.available;
+
+    if (rawCurrent !== undefined && rawCurrent !== null) {
+      balanceValue = parseFloat(rawCurrent) || 0;
+    } else {
+      try {
+        const balances = await bankAdapter.getBalances(accessToken, plaidAccount.id);
+        const rawBalance = balances?.current ?? balances?.ledger ?? balances?.available ?? 0;
+        balanceValue = parseFloat(rawBalance) || 0;
+      } catch {
+        balanceValue = existingAccount ? parseFloat(existingAccount.balance) || 0 : 0;
+      }
+    }
+
+    const institutionName = defaultBankName || plaidAccount.institution?.name || null;
+
     await db.Account.upsert(
       {
-        accountId: tellerAccount.id,
+        accountId: plaidAccount.id,
         enrollmentId: enrollment.enrollmentId,
         userId,
-        name: tellerAccount.name,
-        lastFour: tellerAccount.last_four,
-        type: tellerAccount.type,
-        subtype: tellerAccount.subtype,
+        name: plaidAccount.name,
+        lastFour: plaidAccount.last_four,
+        type: plaidAccount.type,
+        subtype: plaidAccount.subtype,
         institutionName,
         balance: balanceValue,
-        syncCursor: newestAccountCursor,
+        syncCursor: latestEnrollmentCursor,
       },
       { conflictFields: ['account_id'] }
     );
   }
 
-  // Step 6: Update the enrollment's syncCursor in PostgreSQL
+  // Step 5: Update the enrollment's syncCursor in PostgreSQL
   if (latestEnrollmentCursor && latestEnrollmentCursor !== enrollment.syncCursor) {
     await enrollment.update({ syncCursor: latestEnrollmentCursor });
   }

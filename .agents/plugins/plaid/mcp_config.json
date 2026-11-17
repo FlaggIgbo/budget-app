@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "plaid": {
+      "url": "https://mcp.plaid.com/mcp"
+    }
+  }
+}

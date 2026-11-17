@@ -28,7 +28,7 @@ import { AuthService } from '../../services/auth.service';
       <mat-card appearance="outlined" class="card">
         <mat-card-header>
           <mat-card-title><h1>Budget App</h1></mat-card-title>
-          <mat-card-subtitle class="subtitle">Sign in with your email address</mat-card-subtitle>
+          <mat-card-subtitle class="subtitle">Sign in with your phone number</mat-card-subtitle>
         </mat-card-header>
 
         <mat-card-content>
@@ -39,32 +39,32 @@ import { AuthService } from '../../services/auth.service';
                 <strong>Sandbox test credentials</strong>
               </div>
               <p>
-                Email: <code>{{ creds.email }}</code> · Code: <code>{{ creds.otp }}</code>
+                Phone: <code>{{ creds.phone }}</code> · Code: <code>{{ creds.otp }}</code>
               </p>
             </div>
           }
 
-          @if (step() === 'email') {
+          @if (step() === 'phone') {
             <form (ngSubmit)="sendOtp()" class="form">
               <mat-form-field appearance="outline">
-                <mat-label><label for="email">Email address</label></mat-label>
-                <mat-icon matPrefix>mail</mat-icon>
+                <mat-label><label for="phone">Phone number</label></mat-label>
+                <mat-icon matPrefix>phone</mat-icon>
                 <input
                   matInput
-                  id="email"
-                  type="email"
-                  [(ngModel)]="email"
-                  name="email"
-                  [placeholder]="sandbox()?.email ?? 'you@example.com'"
-                  autocomplete="email"
-                  inputmode="email"
+                  id="phone"
+                  type="tel"
+                  [(ngModel)]="phone"
+                  name="phone"
+                  [placeholder]="sandbox()?.phone ?? '+15551234567'"
+                  autocomplete="tel"
+                  inputmode="tel"
                 />
               </mat-form-field>
               <button
                 mat-flat-button
                 type="submit"
                 class="btn"
-                [disabled]="loading() || !email.trim()"
+                [disabled]="loading() || !phone.trim()"
               >
                 @if (loading()) {
                   <mat-spinner diameter="20"></mat-spinner>
@@ -99,9 +99,9 @@ import { AuthService } from '../../services/auth.service';
                 }
                 {{ loading() ? 'Verifying…' : 'Verify' }}
               </button>
-              <button mat-button type="button" class="btn-link" (click)="step.set('email')">
+              <button mat-button type="button" class="btn-link" (click)="step.set('phone')">
                 <mat-icon>arrow_back</mat-icon>
-                Change email
+                Change phone number
               </button>
             </form>
           }
@@ -185,12 +185,12 @@ import { AuthService } from '../../services/auth.service';
   ],
 })
 export class LoginComponent implements OnInit {
-  email = '';
+  phone = '';
   otp = '';
-  step = signal<'email' | 'otp'>('email');
+  step = signal<'phone' | 'otp'>('phone');
   loading = signal(false);
   error = signal<string | null>(null);
-  sandbox = signal<{ email: string; otp: string } | null>(null);
+  sandbox = signal<{ phone: string; otp: string } | null>(null);
 
   constructor(
     private auth: AuthService,
@@ -208,12 +208,12 @@ export class LoginComponent implements OnInit {
     });
   }
 
-  // Send verification code
+  // Send SMS verification code
   sendOtp() {
     this.error.set(null);
     this.loading.set(true);
 
-    this.auth.sendOtp(this.email).subscribe({
+    this.auth.sendOtp(this.phone).subscribe({
       next: () => {
         this.step.set('otp');
         this.loading.set(false);
@@ -226,12 +226,12 @@ export class LoginComponent implements OnInit {
     });
   }
 
-  // Verify code and navigate to dashboard
+  // Verify SMS code and navigate to dashboard
   verifyOtp() {
     this.error.set(null);
     this.loading.set(true);
 
-    this.auth.verifyOtp(this.email, this.otp).subscribe({
+    this.auth.verifyOtp(this.phone, this.otp).subscribe({
       next: () => {
         this.loading.set(false);
         this.router.navigate(['/dashboard']);

@@ -3,7 +3,7 @@ const db = require('../models');
 
 // ============================================================================
 // SECRETS VAULT
-// Encrypts and decrypts Teller access_tokens (one per enrollment / institution)
+// Encrypts and decrypts Plaid access_tokens (one per Item / institution)
 // ============================================================================
 
 // Step 1: Turn our secret string into a 32-byte key for AES-256 encryption
@@ -29,7 +29,7 @@ function encryptToken(plainToken) {
   return iv.toString('hex') + ':' + encrypted;
 }
 
-// Step 3: Decrypt a stored access_token when we need to call Teller API
+// Step 3: Decrypt a stored access_token when we need to call Plaid API
 function decryptToken(storedToken) {
   if (!storedToken || !storedToken.includes(':')) {
     return storedToken;

@@ -34,7 +34,7 @@ function setTransporter(transporter) {
   customTransporter = transporter;
 }
 
-// Send 6-digit OTP login code via SMTP
+// Send 6-digit OTP verification code via SMTP (used when linking an email to a user profile)
 async function sendOtpEmail(toEmail, code) {
   const transporter = createTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@budgetapp.local';
@@ -42,14 +42,31 @@ async function sendOtpEmail(toEmail, code) {
   await transporter.sendMail({
     from,
     to: toEmail,
-    subject: 'Your Budget App verification code',
-    text: `Your Budget App verification code is ${code}. It expires in 5 minutes.`,
-    html: `<p>Your Budget App verification code is <strong>${code}</strong>.</p><p>This code expires in 5 minutes.</p>`,
+    subject: 'Your Budget App email verification code',
+    text: `Your Budget App email verification code is ${code}. It expires in 5 minutes.`,
+    html: `<p>Your Budget App email verification code is <strong>${code}</strong>.</p><p>This code expires in 5 minutes.</p>`,
   });
+}
+
+// Send a personal finance summary (net worth, cash flow, spending breakdown) to a user's verified email
+async function sendFinanceSummaryEmail(toEmail, summaryData = {}) {
+  // TODO: Implement personal finance summary email template and scheduled/on-demand delivery.
+  // Consider including:
+  //   1. Net Worth snapshot (totalAssets, totalLiabilities, netWorth)
+  //   2. Monthly Cash Flow (thisMonthIncome vs. thisMonthExpenses, MoM % change)
+  //   3. Top Spending Categories for the current period
+  //   4. Notable or recent transactions across linked Plaid institutions
+  // Once ready, format an HTML digest and send via `createTransporter().sendMail(...)`.
+  return {
+    todo: true,
+    to: toEmail,
+    summaryData,
+  };
 }
 
 module.exports = {
   createTransporter,
   setTransporter,
   sendOtpEmail,
+  sendFinanceSummaryEmail,
 };

@@ -18,7 +18,7 @@ describe('BankAccountsComponent', () => {
         {
           provide: BankService,
           useValue: {
-            getConfig: () => of({ tellerApplicationId: 'app_test', tellerEnvironment: 'sandbox' }),
+            getConfig: () => of({ plaidConfigured: true, plaidEnvironment: 'sandbox' }),
             listEnrollments: () => of([]),
             logout: () => of({ ok: true }),
           },

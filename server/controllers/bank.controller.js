@@ -2,32 +2,40 @@ const bankService = require('../services/bank.service');
 
 // ============================================================================
 // BANK CONTROLLER (API SERVER ENDPOINTS)
-// Handles requests from Browser (Teller Connect UI & Finance Dashboard)
+// Handles requests from Browser (Plaid Link UI & Finance Dashboard)
 // ============================================================================
 
-// POST /link-token -> Return Teller Connect UI configuration
+// POST /link-token -> Create a Plaid Link token for the authenticated user
 exports.createLinkToken = async (req, res, next) => {
   try {
-    const config = bankService.getConnectConfig();
-    res.json(config);
+    const tokenData = await bankService.createLinkToken(req.user.id);
+    res.json(tokenData);
   } catch (err) {
     next(err);
   }
 };
 
-// POST /exchange-token and POST /enrollments -> Save encrypted access_token & sync
+// POST /exchange-token and POST /enrollments -> Exchange public_token, save encrypted access_token & sync
 exports.createEnrollment = async (req, res, next) => {
   try {
-    const accessToken = req.body?.accessToken || req.body?.public_token;
-    const enrollmentId = req.body?.enrollmentId || req.body?.enrollment?.id;
+    const publicToken = req.body?.public_token || req.body?.publicToken;
+    const accessToken = req.body?.accessToken;
+    const enrollmentId =
+      req.body?.enrollmentId || req.body?.item_id || req.body?.enrollment?.id || null;
     const institutionName =
-      req.body?.institutionName || req.body?.enrollment?.institution?.name || null;
+      req.body?.institutionName ||
+      req.body?.institution?.name ||
+      req.body?.enrollment?.institution?.name ||
+      null;
 
-    if (!accessToken || !enrollmentId) {
-      return res.status(400).json({ error: 'accessToken and enrollmentId required' });
+    if (!publicToken && (!accessToken || !enrollmentId)) {
+      return res
+        .status(400)
+        .json({ error: 'public_token (or accessToken and enrollmentId) required' });
     }
 
     const enrollment = await bankService.createEnrollment(req.user.id, {
+      publicToken,
       accessToken,
       enrollmentId,
       institutionName,
@@ -132,7 +140,7 @@ exports.getBalances = async (req, res, next) => {
   }
 };
 
-// GET /accounts/:accountId/transactions -> Get transactions for a bank account from Teller
+// GET /accounts/:accountId/transactions -> Get transactions for a bank account from Plaid
 exports.getTransactions = async (req, res, next) => {
   try {
     const enrollmentId = req.query.enrollmentId;

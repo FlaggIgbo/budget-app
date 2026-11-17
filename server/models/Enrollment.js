@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  // Enrollment table stores connected bank items from Teller (1 user : many enrollments)
+  // Enrollment table stores connected bank items from Plaid (1 user : many enrollments)
   // The accessToken column stores the encrypted access_token from the Secrets Vault
   const Enrollment = sequelize.define(
     'Enrollment',

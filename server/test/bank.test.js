@@ -2,7 +2,7 @@
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
 const bankService = require('../services/bank.service');
-const bankAdapter = require('../services/teller.adapter');
+const bankAdapter = require('../services/plaid.adapter');
 
 describe('Bank Service & Encryption', () => {
   let db;
@@ -13,17 +13,53 @@ describe('Bank Service & Encryption', () => {
     bankAdapter.deleteEnrollment = async () => true;
     db = require('../models');
     await db.sequelize.sync({ force: true });
-    testUser = await db.User.create({ email: 'bankuser@example.com' });
+    testUser = await db.User.create({ phone: '+15550001111', email: 'bankuser@example.com' });
   });
 
   it('encrypts and decrypts bank access tokens at rest in Secrets Vault', () => {
-    const rawToken = 'token_sandbox_secret_123';
+    const rawToken = 'access-sandbox-secret-123';
     const encrypted = bankService.encryptToken(rawToken);
     assert.notStrictEqual(encrypted, rawToken);
     assert.ok(encrypted.includes(':'), 'expected IV:ciphertext format');
 
     const decrypted = bankService.decryptToken(encrypted);
     assert.strictEqual(decrypted, rawToken);
+  });
+
+  it('normalizes Plaid accounts and transactions (inverting outflow/inflow signs)', () => {
+    const normalizedAcct = bankAdapter.normalizeAccount({
+      account_id: 'plaid_acc_1',
+      name: 'Plaid Checking',
+      mask: '0000',
+      type: 'depository',
+      subtype: 'checking',
+      balances: { current: 110, available: 100 },
+    });
+    assert.strictEqual(normalizedAcct.id, 'plaid_acc_1');
+    assert.strictEqual(normalizedAcct.last_four, '0000');
+    assert.strictEqual(normalizedAcct.type, 'depository');
+
+    const expenseTxn = bankAdapter.normalizeTransaction({
+      transaction_id: 'plaid_txn_1',
+      account_id: 'plaid_acc_1',
+      date: '2026-11-10',
+      merchant_name: 'Coffee Shop',
+      amount: 5.5,
+      personal_finance_category: { primary: 'FOOD_AND_DRINK' },
+    });
+    assert.strictEqual(expenseTxn.amount, -5.5);
+    assert.strictEqual(expenseTxn.category, 'Food And Drink');
+
+    const incomeTxn = bankAdapter.normalizeTransaction({
+      transaction_id: 'plaid_txn_2',
+      account_id: 'plaid_acc_1',
+      date: '2026-11-01',
+      name: 'Direct Deposit',
+      amount: -2500,
+      personal_finance_category: { primary: 'INCOME' },
+    });
+    assert.strictEqual(incomeTxn.amount, 2500);
+    assert.strictEqual(incomeTxn.category, 'Income');
   });
 
   it('calculates net worth from persisted Account records without live API calls', async () => {
@@ -41,7 +77,7 @@ describe('Bank Service & Encryption', () => {
       userId: testUser.id,
       name: 'Everyday Checking',
       lastFour: '1111',
-      type: 'deposit',
+      type: 'depository',
       subtype: 'checking',
       institutionName: 'Chase',
       balance: 2500.5,

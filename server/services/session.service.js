@@ -1,10 +1,15 @@
 const db = require('../models');
 
-// Issue a new session token for a verified email address
-async function issueSession(email) {
+// Issue a new session token for a verified phone number
+async function issueSession(phoneInput) {
+  const phone = typeof phoneInput === 'string' ? phoneInput : phoneInput?.phone;
+  if (!phone) {
+    throw new Error('Phone number is required to issue a session');
+  }
+
   const [user] = await db.User.findOrCreate({
-    where: { email },
-    defaults: { email },
+    where: { phone },
+    defaults: { phone },
   });
 
   const token = db.Session.generateToken();
@@ -16,7 +21,11 @@ async function issueSession(email) {
 
   return {
     token,
-    user: { id: user.id, email: user.email },
+    user: {
+      id: user.id,
+      phone: user.phone,
+      email: user.email || null,
+    },
   };
 }
 
@@ -28,7 +37,7 @@ async function verifySessionToken(token) {
 
   const session = await db.Session.findOne({
     where: { token },
-    include: [{ model: db.User, attributes: ['id', 'email'] }],
+    include: [{ model: db.User, attributes: ['id', 'phone', 'email'] }],
   });
 
   if (!session || !session.User) {

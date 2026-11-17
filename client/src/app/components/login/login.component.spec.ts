@@ -17,9 +17,9 @@ describe('LoginComponent', () => {
         {
           provide: AuthService,
           useValue: {
-            getAuthConfig: () => of({ authSandbox: { email: 'test@example.com', otp: '123456' } }),
+            getAuthConfig: () => of({ authSandbox: { phone: '+15551234567', otp: '123456' } }),
             sendOtp: () => of({ ok: true }),
-            verifyOtp: () => of({ ok: true, user: { id: '1', email: 'test@example.com' } }),
+            verifyOtp: () => of({ ok: true, user: { id: '1', phone: '+15551234567' } }),
           },
         },
         { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },
@@ -40,9 +40,9 @@ describe('LoginComponent', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Budget App');
   });
 
-  it('should show email input in initial step', () => {
+  it('should show phone input in initial step', () => {
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('#email')).toBeTruthy();
-    expect(compiled.querySelector('label[for="email"]')?.textContent).toContain('Email address');
+    expect(compiled.querySelector('#phone')).toBeTruthy();
+    expect(compiled.querySelector('label[for="phone"]')?.textContent).toContain('Phone number');
   });
 });

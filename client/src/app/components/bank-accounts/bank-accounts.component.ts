@@ -48,10 +48,11 @@ import {
       </header>
 
       @if (config(); as cfg) {
-        @if (!cfg.tellerApplicationId) {
+        @if (!cfg.plaidConfigured) {
           <mat-card appearance="outlined" class="alert-card">
             <mat-card-content>
-              Teller is not configured. Add TELLER_APPLICATION_ID to your server environment.
+              Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET to your server
+              environment.
             </mat-card-content>
           </mat-card>
         } @else {
@@ -204,10 +205,10 @@ export class BankAccountsComponent implements OnInit {
   constructor(private bank: BankService) {}
 
   ngOnInit() {
-    // Step 1: Get Teller Connect configuration
+    // Step 1: Get Plaid public configuration
     this.bank.getConfig().subscribe({
       next: (c) => this.config.set(c),
-      error: () => this.config.set({ tellerApplicationId: '', tellerEnvironment: 'sandbox' }),
+      error: () => this.config.set({ plaidConfigured: false, plaidEnvironment: 'sandbox' }),
     });
 
     // Step 2: Load connected bank institutions
@@ -258,45 +259,54 @@ export class BankAccountsComponent implements OnInit {
     });
   }
 
-  // Open Teller Connect UI popup (Select institution, login, consent)
+  // Open Plaid Link UI popup (Select institution, login, consent)
   connectBank() {
     const cfg = this.config();
-    if (!cfg || !cfg.tellerApplicationId) {
+    if (!cfg || !cfg.plaidConfigured) {
       return;
     }
 
     this.connecting.set(true);
     this.error.set(null);
 
-    this.bank.openConnect({
-      applicationId: cfg.tellerApplicationId,
-      environment: cfg.tellerEnvironment || 'sandbox',
-      onSuccess: (enrollment) => {
-        const token = enrollment.accessToken;
-        const id = enrollment.enrollment?.id || '';
-        const name = enrollment.enrollment?.institution?.name;
+    // Step 1: Request a link_token from the API server (POST /api/bank/link-token)
+    this.bank.createLinkToken().subscribe({
+      next: (res) => {
+        // Step 2: Open Plaid Link modal with the link_token
+        this.bank.openConnect({
+          linkToken: res.link_token,
+          onSuccess: (publicToken, metadata) => {
+            const institutionId = metadata?.institution?.institution_id;
+            const institutionName = metadata?.institution?.name;
 
-        // Send token to API Server (POST /api/bank/exchange-token)
-        // which stores the encrypted access_token in Secrets Vault and runs Sync Worker
-        this.bank.exchangeToken(token, id, name).subscribe({
-          next: () => {
-            this.loadEnrollments();
-            this.connecting.set(false);
+            // Step 3: Exchange public_token on API Server (POST /api/bank/exchange-token),
+            // store encrypted access_token in Secrets Vault, and run Sync Worker
+            this.bank.exchangeToken(publicToken, institutionId, institutionName).subscribe({
+              next: () => {
+                this.loadEnrollments();
+                this.connecting.set(false);
+              },
+              error: (err) => {
+                const message = err?.error?.error || 'Failed to save account';
+                this.error.set(message);
+                this.connecting.set(false);
+              },
+            });
           },
-          error: (err) => {
-            const message = err?.error?.error || 'Failed to save account';
-            this.error.set(message);
+          onExit: () => {
             this.connecting.set(false);
           },
         });
       },
-      onExit: () => {
+      error: (err) => {
+        const message = err?.error?.error || 'Failed to initialize Plaid Link';
+        this.error.set(message);
         this.connecting.set(false);
       },
     });
   }
 
-  // Disconnect bank (calls Disconnect Handler -> Teller DELETE /accounts + DB cascade delete)
+  // Disconnect bank (calls Disconnect Handler -> Plaid POST /item/remove + DB cascade delete)
   disconnect(enrollmentId: string) {
     this.disconnecting.set(enrollmentId);
 

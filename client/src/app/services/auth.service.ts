@@ -4,16 +4,17 @@ import { Observable, tap, catchError, of, map } from 'rxjs';
 
 export interface User {
   id: string;
-  email: string;
+  phone: string;
+  email?: string | null;
 }
 
 export interface AuthConfig {
-  tellerApplicationId?: string;
-  tellerEnvironment?: string;
-  authSandbox?: { email: string; otp: string };
+  plaidConfigured?: boolean;
+  plaidEnvironment?: string;
+  authSandbox?: { phone: string; otp: string };
 }
 
-// Service to manage login status and user session
+// Service to manage login status and user session (Phone OTP authentication)
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private userSignal = signal<User | null>(null);
@@ -46,14 +47,14 @@ export class AuthService {
     );
   }
 
-  // POST /otp/request - Send 6-digit verification code to email
-  sendOtp(email: string): Observable<{ ok: boolean; message?: string }> {
-    return this.api.post<{ ok: boolean; message?: string }>('/otp/request', { email });
+  // POST /otp/request - Send 6-digit SMS verification code to phone number
+  sendOtp(phone: string): Observable<{ ok: boolean; message?: string }> {
+    return this.api.post<{ ok: boolean; message?: string }>('/otp/request', { phone });
   }
 
-  // POST /otp/verify - Verify code and issue user session
-  verifyOtp(email: string, code: string): Observable<{ ok: boolean; user: User }> {
-    return this.api.post<{ ok: boolean; user: User }>('/otp/verify', { email, code }).pipe(
+  // POST /otp/verify - Verify SMS code and issue user session
+  verifyOtp(phone: string, code: string): Observable<{ ok: boolean; user: User }> {
+    return this.api.post<{ ok: boolean; user: User }>('/otp/verify', { phone, code }).pipe(
       tap((res) => {
         if (res.ok && res.user) {
           this.userSignal.set(res.user);

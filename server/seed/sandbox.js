@@ -1,7 +1,5 @@
 const db = require('../models');
-const { isSandboxMode } = require('../services/otp.service');
-
-const SANDBOX_EMAIL = 'test@example.com';
+const { isSandboxMode, SANDBOX_PHONE } = require('../services/otp.service');
 
 // Create sandbox test user in database
 async function seedSandboxUser() {
@@ -11,11 +9,11 @@ async function seedSandboxUser() {
 
   try {
     const [user] = await db.User.findOrCreate({
-      where: { email: SANDBOX_EMAIL },
-      defaults: { email: SANDBOX_EMAIL },
+      where: { phone: SANDBOX_PHONE },
+      defaults: { phone: SANDBOX_PHONE },
     });
     if (user.isNewRecord) {
-      console.log(`Created sandbox test user: ${SANDBOX_EMAIL} (Code: 123456)`);
+      console.log(`Created sandbox test user: ${SANDBOX_PHONE} (Code: 123456)`);
     }
   } catch (err) {
     console.error('Failed to create test user:', err.message);
