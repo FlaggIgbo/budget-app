@@ -1,5 +1,36 @@
 @use '@angular/material' as mat;
 
+/* Local font fallbacks to guarantee sans-serif rendering in offline/headless browser environments */
+@font-face {
+  font-family: 'Inter';
+  src:
+    local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'),
+    local('Segoe UI'), local('Arial');
+  font-weight: 300 800;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src:
+    local('Roboto'), local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'),
+    local('SF Pro Text'), local('Segoe UI'), local('Arial');
+  font-weight: 300 800;
+  font-style: normal;
+}
+
+$app-font-stack:
+  'Inter',
+  -apple-system,
+  BlinkMacSystemFont,
+  'SF Pro Display',
+  'SF Pro Text',
+  'Segoe UI',
+  Roboto,
+  Helvetica,
+  Arial,
+  sans-serif;
+
 html {
   color-scheme: light;
   @include mat.theme(
@@ -8,13 +39,17 @@ html {
         primary: mat.$azure-palette,
         tertiary: mat.$blue-palette,
       ),
-      typography: Roboto,
+      typography: (
+        plain-family: '#{$app-font-stack}',
+        brand-family: '#{$app-font-stack}',
+      ),
       density: 0,
     )
   );
 }
 
 :root {
+  --app-font-family: #{$app-font-stack};
   --bg-gradient: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   --card-bg: #ffffff;
   --card-border: #e2e8f0;
@@ -31,6 +66,20 @@ html {
   --success-bg: rgba(16, 185, 129, 0.08);
   --danger-color: #ef4444;
   --danger-bg: rgba(239, 68, 68, 0.08);
+
+  /* Override Angular Material typography variables to always use clean sans-serif */
+  --mat-sys-title-large-font: #{$app-font-stack} !important;
+  --mat-sys-title-medium-font: #{$app-font-stack} !important;
+  --mat-sys-title-small-font: #{$app-font-stack} !important;
+  --mat-sys-headline-large-font: #{$app-font-stack} !important;
+  --mat-sys-headline-medium-font: #{$app-font-stack} !important;
+  --mat-sys-headline-small-font: #{$app-font-stack} !important;
+  --mat-sys-body-large-font: #{$app-font-stack} !important;
+  --mat-sys-body-medium-font: #{$app-font-stack} !important;
+  --mat-sys-body-small-font: #{$app-font-stack} !important;
+  --mat-sys-label-large-font: #{$app-font-stack} !important;
+  --mat-sys-label-medium-font: #{$app-font-stack} !important;
+  --mat-sys-label-small-font: #{$app-font-stack} !important;
 }
 
 html,
@@ -38,20 +87,41 @@ body {
   height: 100%;
 }
 
+*,
+*::before,
+*::after {
+  font-family: inherit;
+}
+
 body {
   margin: 0;
-  font-family:
-    'Inter',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  font-family: $app-font-stack !important;
   background: var(--bg-gradient);
   background-attachment: fixed;
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure modern sans-serif typography for all headings, titles, subtitles, and form controls */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.mat-mdc-card-title,
+.mat-mdc-card-subtitle,
+.mat-headline-6,
+.mat-title-large,
+.mat-title-medium,
+.mat-title-small,
+.subtitle,
+button,
+input,
+select,
+textarea {
+  font-family: $app-font-stack !important;
 }
 
 /* Polished Material component styling */

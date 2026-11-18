@@ -236,7 +236,7 @@ function startStaticSpaServer() {
   });
 }
 
-// Inject styles to freeze animations, spinners, and carets for deterministic screenshots
+// Inject styles to freeze animations, spinners, carets, and guarantee modern sans-serif typography
 async function applyDeterministicStyles(page) {
   await page.addStyleTag({
     content: `
@@ -246,6 +246,10 @@ async function applyDeterministicStyles(page) {
         transition-duration: 0s !important;
         transition-delay: 0s !important;
         caret-color: transparent !important;
+      }
+      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
       }
     `,
   });
@@ -260,13 +264,45 @@ async function setupApiMockRoutes(page, options = {}) {
     plaidConfigured = true,
   } = options;
 
-  // Block external Google Fonts / Material Icon font requests from hanging networkidle in offline mode
+  // Provide deterministic local sans-serif @font-face mappings without hanging networkidle in offline environments
   await page.route('https://fonts.googleapis.com/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/css', body: '' })
+    route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: `
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 300 800;
+          src: local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
+        }
+        @font-face {
+          font-family: 'Roboto';
+          font-style: normal;
+          font-weight: 300 800;
+          src: local('Roboto'), local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
+        }
+      `,
+    })
   );
   await page.route('https://fonts.gstatic.com/**', (route) =>
     route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
   );
+
+  await page.addInitScript(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+      }
+    `;
+    if (document.head) {
+      document.head.appendChild(style);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    }
+  });
 
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());

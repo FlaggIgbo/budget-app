@@ -99,8 +99,26 @@ async function setupStatefulE2EMocks(page) {
     },
   ];
 
+  // Provide deterministic local sans-serif @font-face mappings without hanging networkidle in offline environments
   await page.route('https://fonts.googleapis.com/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/css', body: '' })
+    route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: `
+        @font-face {
+          font-family: 'Inter';
+          font-style: normal;
+          font-weight: 300 800;
+          src: local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
+        }
+        @font-face {
+          font-family: 'Roboto';
+          font-style: normal;
+          font-weight: 300 800;
+          src: local('Roboto'), local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
+        }
+      `,
+    })
   );
   await page.route('https://fonts.gstatic.com/**', (route) =>
     route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
@@ -461,6 +479,20 @@ async function main() {
   });
 
   const page = await context.newPage();
+  await page.addInitScript(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+      }
+    `;
+    if (document.head) {
+      document.head.appendChild(style);
+    } else {
+      document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    }
+  });
   if (!isRemote) {
     await setupStatefulE2EMocks(page);
   }
