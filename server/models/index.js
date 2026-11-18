@@ -30,17 +30,13 @@ const db = {
   Sequelize,
 };
 
-// Load models
+// Load models (auth sessions are stored in Redis with a 1-hour TTL)
 db.User = require('./User')(sequelize);
-db.Session = require('./Session')(sequelize);
 db.Enrollment = require('./Enrollment')(sequelize);
 db.Account = require('./Account')(sequelize);
 db.Transaction = require('./Transaction')(sequelize);
 
 // Link models together with cascade delete on disconnect
-db.User.hasMany(db.Session, { foreignKey: 'userId', onDelete: 'CASCADE' });
-db.Session.belongsTo(db.User, { foreignKey: 'userId' });
-
 db.User.hasMany(db.Enrollment, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Enrollment.belongsTo(db.User, { foreignKey: 'userId' });
 

@@ -3,12 +3,12 @@ const otpService = require('../services/otp.service');
 
 const COOKIE_NAME = 'session';
 
-// Cookie settings for browser session
+// Cookie settings for browser session (1-hour TTL matching Redis session store)
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+  maxAge: 60 * 60 * 1000, // 1 hour in milliseconds
   path: '/',
 };
 

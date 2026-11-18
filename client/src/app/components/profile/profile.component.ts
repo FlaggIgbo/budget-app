@@ -33,64 +33,117 @@ export type Profile = UserProfile;
   template: `
     <mat-toolbar class="top-toolbar">
       <div class="toolbar-inner">
-        <a mat-button routerLink="/dashboard" class="back">
+        <a mat-button routerLink="/dashboard" class="back-link">
           <mat-icon>arrow_back</mat-icon>
           Dashboard
         </a>
-        <button mat-stroked-button class="btn-logout" (click)="logout()">
-          <mat-icon>logout</mat-icon>
-          Log out
-        </button>
+        <div class="header-actions">
+          <a mat-button routerLink="/accounts" class="nav-link">
+            <mat-icon>account_balance</mat-icon>
+            Accounts
+          </a>
+          <button mat-stroked-button class="btn-logout" (click)="logout()">
+            <mat-icon>logout</mat-icon>
+            Log out
+          </button>
+        </div>
       </div>
     </mat-toolbar>
 
     <div class="profile">
       <header class="page-header">
-        <h1>Profile</h1>
-        <p class="subtitle">Manage your phone login and email for personal finance summaries</p>
+        <div class="header-icon">
+          <mat-icon>person</mat-icon>
+        </div>
+        <div class="header-text">
+          <h1>Profile</h1>
+          <p class="subtitle">
+            Manage your credentials, phone authentication, and linked notification email
+          </p>
+        </div>
       </header>
 
       @if (profile(); as p) {
         <mat-card appearance="outlined" class="profile-card">
-          <mat-card-content>
-            <mat-list>
-              <mat-list-item>
-                <mat-icon matListItemIcon>phone</mat-icon>
-                <span matListItemTitle class="label">Phone Number</span>
-                <span matListItemLine class="value">{{ p.phone }}</span>
-              </mat-list-item>
+          <div class="profile-card-header">
+            <div class="user-avatar-large">
+              <mat-icon>person</mat-icon>
+            </div>
+            <div class="user-meta">
+              <h2>Account Credentials</h2>
+              <span class="user-status-pill">Active Session</span>
+            </div>
+          </div>
 
-              <mat-list-item>
-                <mat-icon matListItemIcon>mail</mat-icon>
-                <span matListItemTitle class="label">Email Address</span>
-                <span matListItemLine class="value">
-                  {{ p.email || 'Not linked — add an email to receive finance summaries' }}
+          <mat-card-content class="profile-content">
+            <div class="info-row">
+              <div class="info-icon">
+                <mat-icon>phone</mat-icon>
+              </div>
+              <div class="info-body">
+                <div class="info-label-group">
+                  <span class="info-label">Phone Number</span>
+                  <span class="verified-tag"><mat-icon>verified</mat-icon> Login method</span>
+                </div>
+                <span class="info-value">{{ p.phone }}</span>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="info-row">
+              <div class="info-icon">
+                <mat-icon>mail</mat-icon>
+              </div>
+              <div class="info-body">
+                <div class="info-label-group">
+                  <span class="info-label">Email Address</span>
+                  @if (p.email) {
+                    <span class="verified-tag"><mat-icon>verified</mat-icon> Verified</span>
+                  } @else {
+                    <span class="unverified-tag">Not linked</span>
+                  }
+                </div>
+                <span class="info-value" [class.empty-val]="!p.email">
+                  {{ p.email || 'No email linked — add one to receive personal finance digests' }}
                 </span>
-                @if (!linkingEmail()) {
-                  <button mat-stroked-button matListItemMeta (click)="startEmailLinking()">
-                    {{ p.email ? 'Update email' : 'Add email' }}
-                  </button>
-                }
-              </mat-list-item>
-            </mat-list>
+              </div>
+              @if (!linkingEmail()) {
+                <button mat-stroked-button class="btn-edit-email" (click)="startEmailLinking()">
+                  <mat-icon>{{ p.email ? 'edit' : 'add' }}</mat-icon>
+                  {{ p.email ? 'Update' : 'Add email' }}
+                </button>
+              }
+            </div>
           </mat-card-content>
         </mat-card>
 
         @if (linkingEmail()) {
           <mat-card appearance="outlined" class="link-card">
-            <mat-card-header>
-              <mat-card-title>
-                <h2>Verify & Link Email Address</h2>
-              </mat-card-title>
-              <mat-card-subtitle>
-                We will send a 6-digit verification code to confirm your email before saving it.
-              </mat-card-subtitle>
+            <mat-card-header class="link-header">
+              <div class="link-icon-wrap">
+                <mat-icon>{{ linkStep() === 'input' ? 'mail' : 'mark_email_read' }}</mat-icon>
+              </div>
+              <div>
+                <mat-card-title>
+                  <h2>
+                    {{ linkStep() === 'input' ? 'Link Email Address' : 'Enter Verification Code' }}
+                  </h2>
+                </mat-card-title>
+                <mat-card-subtitle class="subtitle">
+                  {{
+                    linkStep() === 'input'
+                      ? 'We will send a 6-digit confirmation code to verify your address.'
+                      : 'Check your inbox for the 6-digit code and enter it below.'
+                  }}
+                </mat-card-subtitle>
+              </div>
             </mat-card-header>
 
-            <mat-card-content>
+            <mat-card-content class="link-body">
               @if (linkStep() === 'input') {
                 <form (ngSubmit)="sendEmailOtp()" class="link-form">
-                  <mat-form-field appearance="outline">
+                  <mat-form-field appearance="outline" class="form-field-full">
                     <mat-label>Email address</mat-label>
                     <mat-icon matPrefix>mail</mat-icon>
                     <input
@@ -99,133 +152,425 @@ export type Profile = UserProfile;
                       [(ngModel)]="newEmail"
                       name="newEmail"
                       placeholder="you@example.com"
+                      required
                     />
                   </mat-form-field>
 
                   <div class="link-actions">
                     <button
                       mat-flat-button
+                      class="btn-primary"
                       type="submit"
                       [disabled]="linkLoading() || !newEmail.trim()"
                     >
+                      <mat-icon>send</mat-icon>
                       {{ linkLoading() ? 'Sending…' : 'Send verification code' }}
                     </button>
-                    <button mat-button type="button" (click)="cancelEmailLinking()">Cancel</button>
+                    <button
+                      mat-button
+                      type="button"
+                      class="btn-cancel"
+                      (click)="cancelEmailLinking()"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </form>
               } @else {
                 <form (ngSubmit)="verifyEmailOtp()" class="link-form">
-                  <mat-form-field appearance="outline">
+                  <mat-form-field appearance="outline" class="form-field-full">
                     <mat-label>6-digit verification code</mat-label>
                     <mat-icon matPrefix>lock</mat-icon>
                     <input
                       matInput
                       type="text"
+                      class="otp-input"
                       [(ngModel)]="emailOtpCode"
                       name="emailOtpCode"
                       placeholder="123456"
                       maxlength="6"
+                      required
                     />
                   </mat-form-field>
 
                   <div class="link-actions">
                     <button
                       mat-flat-button
+                      class="btn-primary"
                       type="submit"
                       [disabled]="linkLoading() || !emailOtpCode.trim()"
                     >
+                      <mat-icon>check_circle</mat-icon>
                       {{ linkLoading() ? 'Verifying…' : 'Verify & save' }}
                     </button>
                     <button mat-button type="button" (click)="linkStep.set('input')">Back</button>
-                    <button mat-button type="button" (click)="cancelEmailLinking()">Cancel</button>
+                    <button
+                      mat-button
+                      type="button"
+                      class="btn-cancel"
+                      (click)="cancelEmailLinking()"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </form>
               }
 
               @if (linkError(); as lErr) {
-                <p class="error">{{ lErr }}</p>
+                <div class="error-banner">
+                  <mat-icon>error_outline</mat-icon>
+                  <span>{{ lErr }}</span>
+                </div>
               }
             </mat-card-content>
           </mat-card>
         }
 
         @if (successMessage(); as msg) {
-          <p class="success">{{ msg }}</p>
+          <div class="success-banner">
+            <mat-icon>check_circle</mat-icon>
+            <span>{{ msg }}</span>
+          </div>
         }
       } @else if (error()) {
-        <p class="error">{{ error() }}</p>
+        <div class="error-banner">
+          <mat-icon>error_outline</mat-icon>
+          <span>{{ error() }}</span>
+        </div>
       } @else {
-        <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-        <p class="loading">Loading profile…</p>
+        <div class="loading-wrap">
+          <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+          <p class="loading">Loading profile…</p>
+        </div>
       }
     </div>
   `,
   styles: [
     `
       .top-toolbar {
-        background: var(--mat-sys-surface, #ffffff);
-        border-bottom: 1px solid var(--mat-sys-outline-variant, #e2e8f0);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        height: 64px;
       }
       .toolbar-inner {
         display: flex;
         justify-content: space-between;
         align-items: center;
         width: 100%;
-        max-width: 520px;
+        max-width: 680px;
         margin: 0 auto;
+        padding: 0 1rem;
+      }
+      .back-link {
+        font-weight: 500;
+        color: #475569 !important;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .nav-link {
+        color: #475569 !important;
+        font-weight: 500;
+      }
+      .btn-logout {
+        border-color: rgba(203, 213, 225, 0.8) !important;
+        color: #475569 !important;
+        font-size: 0.875rem;
+      }
+      .btn-logout:hover {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
       }
       .profile {
-        padding: 2rem 1.5rem;
-        max-width: 520px;
+        padding: 2.5rem 1.25rem 4rem;
+        max-width: 680px;
         margin: 0 auto;
       }
       .page-header {
-        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 1.25rem;
+        margin-bottom: 2rem;
       }
-      h1 {
-        margin: 0 0 0.25rem;
-        font-size: 1.75rem;
-        font-weight: 600;
+      .header-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+        flex-shrink: 0;
       }
-      h2 {
-        margin: 0;
-        font-size: 1.15rem;
-        font-weight: 600;
+      .header-icon mat-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+      }
+      .header-text h1 {
+        margin: 0 0 0.35rem;
+        font-size: 1.85rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        color: #0f172a;
       }
       .subtitle {
-        color: var(--mat-sys-on-surface-variant, #64748b);
+        color: #64748b;
         margin: 0;
         font-size: 0.95rem;
+        line-height: 1.5;
       }
       .profile-card {
-        margin-bottom: 1.25rem;
+        background: #ffffff !important;
+        border: 1px solid rgba(226, 232, 240, 0.9) !important;
+        border-radius: 18px !important;
+        box-shadow:
+          0 4px 6px -1px rgba(15, 23, 42, 0.03),
+          0 2px 4px -2px rgba(15, 23, 42, 0.03) !important;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+      }
+      .profile-card-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        background: #fafafa;
+        border-bottom: 1px solid #f1f5f9;
+      }
+      .user-avatar-large {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: #eef2ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .user-avatar-large mat-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+      }
+      .user-meta h2 {
+        margin: 0 0 0.25rem;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .user-status-pill {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #10b981;
+        background: #ecfdf5;
+        padding: 0.15rem 0.5rem;
+        border-radius: 12px;
+        border: 1px solid #a7f3d0;
+      }
+      .profile-content {
+        padding: 1.5rem !important;
+      }
+      .info-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .info-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .info-icon mat-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+      }
+      .info-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .info-label-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .info-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #64748b;
+      }
+      .verified-tag {
+        font-size: 0.75rem;
+        color: #059669;
+        display: flex;
+        align-items: center;
+        gap: 0.15rem;
+        font-weight: 600;
+      }
+      .verified-tag mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+      .unverified-tag {
+        font-size: 0.75rem;
+        color: #d97706;
+        font-weight: 500;
+      }
+      .info-value {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .info-value.empty-val {
+        font-weight: 400;
+        color: #94a3b8;
+        font-size: 0.9rem;
+      }
+      .btn-edit-email {
+        border-color: #cbd5e1 !important;
+        color: #2563eb !important;
+        font-weight: 600;
+        border-radius: 10px !important;
+        font-size: 0.85rem;
+      }
+      .divider {
+        height: 1px;
+        background: #f1f5f9;
+        margin: 1.25rem 0;
       }
       .link-card {
-        margin-bottom: 1.25rem;
+        background: #ffffff !important;
+        border: 1px solid rgba(226, 232, 240, 0.9) !important;
+        border-radius: 18px !important;
+        box-shadow:
+          0 4px 6px -1px rgba(15, 23, 42, 0.03),
+          0 2px 4px -2px rgba(15, 23, 42, 0.03) !important;
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+      }
+      .link-header {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        background: #f8fafc;
+        border-bottom: 1px solid #f1f5f9;
+      }
+      .link-icon-wrap {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #eef2ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .link-icon-wrap mat-icon {
+        font-size: 24px;
+        width: 24px;
+        height: 24px;
+      }
+      .link-header h2 {
+        margin: 0 0 0.15rem;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .link-body {
+        padding: 1.5rem !important;
       }
       .link-form {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-        margin-top: 1rem;
+        gap: 0.75rem;
+      }
+      .form-field-full {
+        width: 100%;
+      }
+      .otp-input {
+        letter-spacing: 0.25em;
+        font-weight: 600;
+        font-size: 1.1rem;
       }
       .link-actions {
         display: flex;
-        gap: 0.5rem;
+        gap: 0.75rem;
         align-items: center;
-      }
-      .loading {
-        color: var(--mat-sys-on-surface-variant, #64748b);
         margin-top: 0.5rem;
       }
-      .error {
-        color: var(--mat-sys-error, #dc2626);
-        margin-top: 0.75rem;
+      .btn-primary {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        color: #ffffff !important;
+        font-weight: 600;
+        padding: 0.65rem 1.25rem !important;
+        border-radius: 10px !important;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
       }
-      .success {
-        color: #16a34a;
+      .btn-cancel {
+        color: #64748b !important;
+      }
+      .error-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.85rem 1.15rem;
+        border-radius: 12px;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+      }
+      .success-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.85rem 1.15rem;
+        border-radius: 12px;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        color: #047857;
         font-weight: 500;
+      }
+      .loading-wrap {
+        padding: 2rem 1rem;
+        text-align: center;
+      }
+      .loading {
+        color: #64748b;
         margin-top: 0.75rem;
+        font-size: 0.95rem;
       }
     `,
   ],

@@ -1,14 +1,16 @@
-// Auth & Profile Email Linking API tests
+// Auth, Redis 1-Hour Session Store, RabbitMQ Login Priority Queue, & Profile Email Linking tests
 const { describe, it, before, afterEach } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
 
-describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
+describe('Auth API (Phone OTP, Redis 1h Sessions, RabbitMQ Login Priority & Profile Email)', () => {
   let app;
   let db;
   let emailService;
   let smsService;
   let otpService;
+  let sessionService;
+  let queueService;
   let bankService;
   let sentEmails = [];
   let sentSmsMessages = [];
@@ -22,6 +24,8 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
     emailService = require('../services/email.service');
     smsService = require('../services/sms.service');
     otpService = require('../services/otp.service');
+    sessionService = require('../services/session.service');
+    queueService = require('../services/queue.service');
     bankService = require('../services/bank.service');
 
     // Mock email sender (used for profile email OTP verification)
@@ -40,8 +44,8 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
       },
     });
 
-    // Mock Redis client with TTL tracking
-    otpService.setClient({
+    // Shared mock Redis client for both 5-min OTP codes and 1-hour (3600s) Auth Sessions
+    const mockRedisClient = {
       set: async (key, value, options) => {
         fakeRedisStore.set(key, { value, ttl: options?.EX || null });
       },
@@ -52,7 +56,10 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
       del: async (key) => {
         fakeRedisStore.delete(key);
       },
-    });
+    };
+
+    otpService.setClient(mockRedisClient);
+    sessionService.setClient(mockRedisClient);
 
     await db.sequelize.sync({ force: true });
   });
@@ -63,6 +70,7 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
     sentEmails = [];
     sentSmsMessages = [];
     fakeRedisStore.clear();
+    queueService.clearPendingJobs();
   });
 
   describe('POST /api/otp/request (Phone-only Login)', () => {
@@ -103,7 +111,7 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
     });
   });
 
-  describe('POST /api/otp/verify (Phone-only Login)', () => {
+  describe('POST /api/otp/verify (Redis 1-Hour Session & High-Priority Login Sync Job)', () => {
     it('returns 400 when phone is missing', async () => {
       const res = await request(app).post('/api/otp/verify').send({ otp: '123456' });
       assert.strictEqual(res.status, 400);
@@ -114,7 +122,7 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
       assert.strictEqual(res.status, 400);
     });
 
-    it('returns 200 and sets cookie with sandbox phone credentials', async () => {
+    it('stores session token in Redis with 1-hour (3600s) TTL and enqueues a high-priority RabbitMQ sync job on login', async () => {
       const res = await request(app)
         .post('/api/otp/verify')
         .send({ phone: '+15551234567', otp: '123456' });
@@ -122,20 +130,24 @@ describe('Auth API (Phone OTP Login & Profile Email Verification)', () => {
       assert.strictEqual(res.body.ok, true);
       assert.ok(res.body.user?.id);
       assert.strictEqual(res.body.user?.phone, '+15551234567');
-      const setCookie = res.headers['set-cookie'];
-      let cookies = [];
-      if (Array.isArray(setCookie)) {
-        cookies = setCookie;
-      } else if (setCookie) {
-        cookies = [setCookie];
-      }
-      assert.ok(
-        cookies.some((c) => c.includes('session')),
-        'expected session cookie'
+
+      // Verify session is stored in Redis with 1-hour (3600s) TTL
+      const sessionEntries = Array.from(fakeRedisStore.entries()).filter(([k]) =>
+        k.startsWith('session:')
       );
+      assert.strictEqual(sessionEntries.length, 1, 'expected 1 session stored in Redis');
+      const [, sessionRecord] = sessionEntries[0];
+      assert.strictEqual(sessionRecord.ttl, 3600, 'expected 1-hour (3600s) TTL in Redis');
+
+      // Verify prioritized RabbitMQ sync job was enqueued on login
+      const jobs = queueService.getPendingJobs();
+      assert.strictEqual(jobs.length, 1);
+      assert.strictEqual(jobs[0].userId, res.body.user.id);
+      assert.strictEqual(jobs[0].source, 'login');
+      assert.strictEqual(jobs[0].priority, queueService.PRIORITY_HIGH);
     });
 
-    it('verifies stored SMS OTP from Redis in production and deletes key upon match', async () => {
+    it('verifies stored SMS OTP from Redis in production and deletes OTP key upon match', async () => {
       process.env.NODE_ENV = 'production';
       process.env.PLAID_ENV = 'production';
 

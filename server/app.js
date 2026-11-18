@@ -3,7 +3,12 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const { getEnvConfig } = require('./config/env.config');
 const { isSandboxMode } = require('./services/otp.service');
+const sentryService = require('./services/sentry.service');
+
+// Initialize Sentry error logging stub
+sentryService.initSentry();
 
 const app = express();
 
@@ -23,11 +28,17 @@ if (process.env.CORS_ORIGIN) {
 }
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
-// Get Plaid public configuration
+// Get Plaid & environment public configuration
 app.get('/api/config', (req, res) => {
+  const envConfig = getEnvConfig();
   const config = {
+    environment: envConfig.appEnv,
     plaidConfigured: Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET),
-    plaidEnvironment: process.env.PLAID_ENV || 'sandbox',
+    plaidEnvironment: envConfig.plaidEnv,
+    allowedPlaidEnvironments: envConfig.isDevelopment
+      ? envConfig.allowedPlaidEnvsInDev
+      : ['production'],
+    storageProvider: envConfig.storageProvider,
   };
 
   // Provide test phone and code when in sandbox mode
@@ -47,6 +58,7 @@ require('./routes/index.routes')(app);
 require('./routes/auth.routes')(app);
 require('./routes/bank.routes')(app);
 require('./routes/profile.routes')(app);
+require('./routes/chat.routes')(app);
 
 // Global error handler
 app.use(require('./middleware/errorHandler'));

@@ -5,6 +5,8 @@
   "description": "Budget App - PEAN Stack",
   "scripts": {
     "prepare": "husky",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
     "install:all": "cd server && npm install && cd ../client && npm install",
     "format": "prettier --write \"**/*.{js,ts,html,json,scss,css}\"",
     "lint": "npm run lint:server && npm run lint:client",
@@ -15,11 +17,15 @@
     "lint:fix:client": "cd client && ng lint --fix",
     "test": "npm run test:server && npm run test:client",
     "test:server": "cd server && npm test",
-    "test:client": "cd client && npm test -- --no-watch --browsers=ChromeHeadless"
+    "test:client": "cd client && npm test -- --no-watch --browsers=ChromeHeadless",
+    "test:e2e": "node scripts/e2e-playwright-flow.js",
+    "screenshots": "node scripts/generate-screenshots.js",
+    "screenshots:check": "./scripts/pre-push-screenshots.sh"
   },
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "playwright": "^1.65.1",
     "prettier": "^3.8.1"
   }
 }

@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Preserve stdin from git for downstream checks
+STDIN_DATA=$(cat)
+
+echo "📸 Checking frontend screenshot test baselines..."
+echo "$STDIN_DATA" | ./scripts/pre-push-screenshots.sh "$@"
+SCREENSHOT_STATUS=$?
+if [ $SCREENSHOT_STATUS -ne 0 ]; then
+  exit $SCREENSHOT_STATUS
+fi
+
+echo "✅ All pre-push checks passed."
+exit 0

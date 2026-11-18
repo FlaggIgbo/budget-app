@@ -1,7 +1,9 @@
-# PostgreSQL and Redis for Budget App development
-# Run: docker compose up -d
-# Postgres: localhost:5432 (user: postgres, password: postgres, db: budget_app)
-# Redis: localhost:6379
+# Local Development Infrastructure for Budget App
+# Run: docker compose up -d (or npm run infra:up)
+# - PostgreSQL: localhost:5432 (user: postgres, password: postgres, db: budget_app)
+# - Redis:      localhost:6379 (5-min OTP codes & 1-hour auth session tokens)
+# - RabbitMQ:   localhost:5672 (AMQP) / http://localhost:15672 (Management UI: guest / guest)
+# - MinIO:      http://localhost:9000 (S3/R2 API) / http://localhost:9001 (Console: minioadmin / minioadmin)
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,11 +13,11 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: budget_app
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,12 +26,59 @@ services:
     image: redis:7-alpine
     container_name: budget-app-redis
     ports:
-      - "6379:6379"
+      - '6379:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: budget-app-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO local S3/R2-compatible object storage cluster for bank statements in development
+  minio:
+    image: minio/minio:latest
+    container_name: budget-app-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+
+  # Automatic bucket initialization for bank statements
+  minio-init:
+    image: minio/mc:latest
+    container_name: budget-app-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 2;
+      /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb --ignore-existing local/budget-statements;
+      exit 0;
+      "
+
 volumes:
   postgres_data:
+  rabbitmq_data:
+  minio_data:

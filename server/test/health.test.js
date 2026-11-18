@@ -1,5 +1,5 @@
-// Health and config API tests
-const { describe, it, before } = require('node:test');
+// Health, Config, and Environment (Development vs. Production) API tests
+const { describe, it, before, afterEach } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
 
@@ -11,6 +11,11 @@ describe('Health & Config API', () => {
     app = require('../app');
   });
 
+  afterEach(() => {
+    process.env.NODE_ENV = 'test';
+    process.env.PLAID_ENV = 'sandbox';
+  });
+
   describe('GET /api/health', () => {
     it('returns 200 with status ok', async () => {
       const res = await request(app).get('/api/health');
@@ -20,11 +25,16 @@ describe('Health & Config API', () => {
   });
 
   describe('GET /api/config', () => {
-    it('returns plaid config', async () => {
+    it('returns plaid and environment config (allowing sandbox or development in localhost dev)', async () => {
+      process.env.NODE_ENV = 'development';
+      process.env.PLAID_ENV = 'development';
+
       const res = await request(app).get('/api/config');
       assert.strictEqual(res.status, 200);
-      assert.ok('plaidConfigured' in res.body);
-      assert.ok('plaidEnvironment' in res.body);
+      assert.strictEqual(res.body.environment, 'development');
+      assert.strictEqual(res.body.plaidEnvironment, 'development');
+      assert.deepStrictEqual(res.body.allowedPlaidEnvironments, ['sandbox', 'development']);
+      assert.strictEqual(res.body.storageProvider, 'minio');
     });
 
     it('includes authSandbox in sandbox mode', async () => {

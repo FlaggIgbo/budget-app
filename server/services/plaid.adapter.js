@@ -1,4 +1,5 @@
 const https = require('https');
+const { getPlaidEnvironment } = require('../config/env.config');
 
 // ============================================================================
 // PLAID API ADAPTER
@@ -14,9 +15,9 @@ const PLAID_ENVIRONMENTS = {
 
 const PLAID_VERSION = '2020-09-14';
 
-// Return current Plaid environment name
+// Return current Plaid environment name (supports sandbox & development in localhost dev)
 function getEnvironment() {
-  const env = (process.env.PLAID_ENV || 'sandbox').toLowerCase();
+  const env = getPlaidEnvironment();
   return PLAID_ENVIRONMENTS[env] ? env : 'sandbox';
 }
 

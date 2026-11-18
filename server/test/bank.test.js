@@ -1,10 +1,15 @@
-// Bank service and API tests (Secrets Vault encryption, Sync Worker, Disconnect Handler, Net Worth, Dashboard Insights)
+// Bank service, RabbitMQ Priority Queue & Daily CRON, MinIO/R2 Statement Storage, and LLM Chat tests
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
 const bankService = require('../services/bank.service');
 const bankAdapter = require('../services/plaid.adapter');
+const queueService = require('../services/queue.service');
+const cronScheduler = require('../services/cron.scheduler');
+const storageService = require('../services/storage.service');
+const llmService = require('../services/llm.service');
+const sentryService = require('../services/sentry.service');
 
-describe('Bank Service & Encryption', () => {
+describe('Bank Service, RabbitMQ Queue, Statement Storage & LLM Assistant', () => {
   let db;
   let testUser;
 
@@ -144,6 +149,49 @@ describe('Bank Service & Encryption', () => {
       institutionName: 'Chase',
     });
     assert.strictEqual(chaseTxns.length, 2);
+  });
+
+  it('prioritizes login sync jobs ahead of daily CRON sync jobs in RabbitMQ queue', async () => {
+    queueService.clearPendingJobs();
+
+    // Enqueue daily cron job (normal priority = 1)
+    const cronRes = await cronScheduler.runDailySyncCron();
+    assert.strictEqual(cronRes.usersQueued, 1);
+
+    // Enqueue login job (high priority = 10)
+    await queueService.enqueueUserSyncJob(testUser.id, { source: 'login' });
+
+    const pending = queueService.getPendingJobs();
+    assert.strictEqual(pending.length, 2);
+    assert.strictEqual(pending[0].source, 'login');
+    assert.strictEqual(pending[0].priority, queueService.PRIORITY_HIGH);
+    assert.strictEqual(pending[1].source, 'daily_cron');
+    assert.strictEqual(pending[1].priority, queueService.PRIORITY_NORMAL);
+  });
+
+  it('combines PostgreSQL financial data and MinIO/R2 statement storage in LLM chat assistant stub', async () => {
+    const uploadStub = await storageService.uploadBankStatement(
+      testUser.id,
+      { institutionName: 'Chase', statementPeriod: '2026-11', fileName: 'nov.pdf' },
+      Buffer.from('PDF_STUB')
+    );
+    assert.strictEqual(uploadStub.todo, true);
+    assert.strictEqual(uploadStub.bucket, 'budget-statements');
+
+    const chatRes = await llmService.askFinancialAssistant(testUser.id, 'How should I budget?');
+    assert.strictEqual(chatRes.todo, true);
+    assert.strictEqual(chatRes.contextSummary.netWorth, 2100.25);
+    assert.strictEqual(chatRes.contextSummary.thisMonthIncome, 3000);
+    assert.strictEqual(chatRes.contextSummary.thisMonthExpenses, 150.75);
+    assert.ok(chatRes.reply.includes('How should I budget?'));
+  });
+
+  it('records exceptions in Sentry stub', () => {
+    sentryService.clearCapturedEvents();
+    sentryService.captureException(new Error('Test Sentry exception'), { component: 'bank.test' });
+    const events = sentryService.getCapturedEvents();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].message, 'Test Sentry exception');
   });
 
   it('disconnects an institution and cascade deletes its accounts and transactions', async () => {
