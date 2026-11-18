@@ -52,7 +52,7 @@ services:
 
   # MinIO local S3/R2-compatible object storage cluster for bank statements in development
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:latest
     container_name: budget-app-minio
     command: server /data --console-address ":9001"
     environment:
@@ -66,7 +66,7 @@ services:
 
   # Automatic bucket initialization for bank statements
   minio-init:
-    image: minio/mc:latest
+    image: pgsty/mc:latest
     container_name: budget-app-minio-init
     depends_on:
       - minio
