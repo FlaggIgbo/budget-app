@@ -1,3 +1,29 @@
 <div class="app">
+  @if (showOfflineBanner()) {
+    <div class="offline-queue-banner" [class.is-syncing]="syncing()" role="status">
+      <mat-icon>{{ isOnline() ? 'sync' : 'cloud_off' }}</mat-icon>
+      <span>
+        @if (!isOnline()) {
+          You are offline.
+          @if (pendingCount() > 0) {
+            {{ pendingCount() }} queued {{ pendingCount() === 1 ? 'action' : 'actions' }} will sync
+            automatically when you reconnect.
+          } @else {
+            Supported actions will be queued locally until you reconnect.
+          }
+        } @else if (syncing()) {
+          Syncing {{ pendingCount() }} queued {{ pendingCount() === 1 ? 'action' : 'actions' }}…
+        } @else {
+          {{ pendingCount() }} queued {{ pendingCount() === 1 ? 'action' : 'actions' }} ready to
+          sync.
+        }
+      </span>
+      @if (isOnline() && pendingCount() > 0 && !syncing()) {
+        <button mat-stroked-button type="button" class="btn-flush-queue" (click)="syncQueuedNow()">
+          Sync now
+        </button>
+      }
+    </div>
+  }
   <router-outlet />
 </div>

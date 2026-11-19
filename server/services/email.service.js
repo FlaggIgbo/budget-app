@@ -34,17 +34,37 @@ function setTransporter(transporter) {
   customTransporter = transporter;
 }
 
+// Resolve origin domain for WebOTP origin-bound email format (`@<domain> #<code>`)
+function getWebOtpDomain() {
+  if (process.env.WEBAUTHN_RP_ID && process.env.WEBAUTHN_RP_ID.trim()) {
+    return process.env.WEBAUTHN_RP_ID.trim();
+  }
+  const rawOrigin = (
+    process.env.WEBAUTHN_ORIGIN ||
+    process.env.CORS_ORIGIN ||
+    'http://localhost:4200'
+  )
+    .split(',')[0]
+    .trim();
+  try {
+    return new URL(rawOrigin).hostname;
+  } catch {
+    return 'localhost';
+  }
+}
+
 // Send 6-digit OTP verification code via SMTP (used during signup and when changing a user's profile email)
 async function sendOtpEmail(toEmail, code) {
   const transporter = createTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@budgetapp.local';
+  const domain = getWebOtpDomain();
 
   await transporter.sendMail({
     from,
     to: toEmail,
     subject: 'Your Budget App email verification code',
-    text: `Your Budget App email verification code is ${code}. It expires in 5 minutes.`,
-    html: `<p>Your Budget App email verification code is <strong>${code}</strong>.</p><p>This code expires in 5 minutes.</p>`,
+    text: `Your Budget App email verification code is ${code}. It expires in 5 minutes.\n\n@${domain} #${code}`,
+    html: `<p>Your Budget App email verification code is <strong>${code}</strong>.</p><p>This code expires in 5 minutes.</p><p>@${domain} #${code}</p>`,
   });
 }
 

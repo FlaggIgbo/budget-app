@@ -24,6 +24,7 @@ const MIME_TYPES = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
@@ -73,13 +74,14 @@ function startStaticSpaServer() {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 4299;
-      resolve({ server, baseUrl: `http://127.0.0.1:${port}` });
+      // Use localhost (not raw IP) so WebAuthn rpId="localhost" and Service Workers work as a secure context
+      resolve({ server, baseUrl: `http://localhost:${port}` });
     });
   });
 }
 
 // Configure stateful API routes for local E2E flow verification
-async function setupStatefulE2EMocks(page) {
+async function setupStatefulE2EMocks(page, offlineState = { offline: false }) {
   let currentUser = null;
   const accountsByPhone = new Map([
     [
@@ -90,10 +92,23 @@ async function setupStatefulE2EMocks(page) {
         lastName: 'Demo',
         phone: '+15551234567',
         email: 'alex@budgetapp.local',
+        hasPasskey: false,
+        passkeyCredentialId: null,
+        passkeyCreatedAt: null,
       },
     ],
   ]);
   const pendingSignups = new Map();
+
+  const toPublicUser = (user) => ({
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: user.phone,
+    email: user.email,
+    hasPasskey: Boolean(user.passkeyCredentialId),
+    passkeyCreatedAt: user.passkeyCreatedAt || null,
+  });
   const enrollments = [
     {
       id: '1',
@@ -136,7 +151,10 @@ async function setupStatefulE2EMocks(page) {
     route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
   );
 
-  await page.route('**/api/**', async (route) => {
+  await page.context().route('**/api/**', async (route) => {
+    if (offlineState.offline) {
+      return route.abort('internetdisconnected');
+    }
     const req = route.request();
     const url = new URL(req.url());
     const pathname = url.pathname;
@@ -181,8 +199,59 @@ async function setupStatefulE2EMocks(page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          user: { ...currentUser },
+          user: toPublicUser(currentUser),
         }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/passkey/login/options')) {
+      const phone = (body.phone || '').trim();
+      const existing = accountsByPhone.get(phone);
+      if (existing && existing.passkeyCredentialId) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            hasPasskey: true,
+            phone,
+            options: {
+              challenge: 'ZTJlLWxvZ2luLWNoYWxsZW5nZQ',
+              rpId: 'localhost',
+              timeout: 60000,
+              userVerification: 'preferred',
+              allowCredentials: [{ id: existing.passkeyCredentialId, type: 'public-key' }],
+            },
+          }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, hasPasskey: false, phone }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/passkey/login/verify')) {
+      const phone = (body.phone || '').trim();
+      const existing = accountsByPhone.get(phone);
+      if (
+        existing &&
+        existing.passkeyCredentialId &&
+        body.credential &&
+        body.credential.id === existing.passkeyCredentialId
+      ) {
+        currentUser = existing;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, user: toPublicUser(currentUser) }),
+        });
+      }
+      return route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Passkey verification failed' }),
       });
     }
 
@@ -200,7 +269,7 @@ async function setupStatefulE2EMocks(page) {
         const existing = accountsByPhone.get(phone);
         if (!existing) {
           const signupToken = `tok_e2e_${Date.now()}`;
-          pendingSignups.set(signupToken, phone);
+          pendingSignups.set(signupToken, { phone, emailVerified: false });
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -219,7 +288,7 @@ async function setupStatefulE2EMocks(page) {
           body: JSON.stringify({
             ok: true,
             requiresSignup: false,
-            user: { ...currentUser },
+            user: toPublicUser(currentUser),
           }),
         });
       }
@@ -245,36 +314,95 @@ async function setupStatefulE2EMocks(page) {
       });
     }
 
-    if (pathname.endsWith('/api/auth/signup/complete')) {
-      const phone = pendingSignups.get(body.signupToken);
-      if (!phone) {
+    if (pathname.endsWith('/api/auth/signup/verify-email-otp')) {
+      const pending = pendingSignups.get(body.signupToken);
+      if (!pending) {
         return route.fulfill({
           status: 401,
           contentType: 'application/json',
           body: JSON.stringify({ error: 'Signup session expired' }),
         });
       }
-      if (body.code === '123456') {
-        const newUser = {
-          id: `usr_${accountsByPhone.size + 1}`,
-          firstName: (body.firstName || '').trim(),
-          lastName: (body.lastName || '').trim(),
-          phone,
-          email: (body.email || '').trim().toLowerCase(),
-        };
-        accountsByPhone.set(phone, newUser);
-        pendingSignups.delete(body.signupToken);
-        currentUser = newUser;
+      if (body.code !== '123456') {
         return route.fulfill({
-          status: 201,
+          status: 401,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, user: { ...currentUser } }),
+          body: JSON.stringify({ error: 'Invalid or expired OTP' }),
+        });
+      }
+      pending.firstName = (body.firstName || '').trim();
+      pending.lastName = (body.lastName || '').trim();
+      pending.email = (body.email || '').trim().toLowerCase();
+      pending.emailVerified = true;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, emailVerified: true }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/passkey/options')) {
+      const pending = pendingSignups.get(body.signupToken);
+      if (!pending || !pending.emailVerified) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Signup session expired' }),
         });
       }
       return route.fulfill({
-        status: 401,
+        status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ error: 'Invalid or expired OTP' }),
+        body: JSON.stringify({
+          ok: true,
+          options: {
+            challenge: 'ZTJlLXNpZ251cC1jaGFsbGVuZ2U',
+            rp: { name: 'Budget App', id: 'localhost' },
+            user: {
+              id: 'dXNyX2UyZQ',
+              name: pending.phone,
+              displayName: `${pending.firstName} ${pending.lastName}`,
+            },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            timeout: 60000,
+            attestation: 'none',
+          },
+        }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/complete')) {
+      const pending = pendingSignups.get(body.signupToken);
+      if (!pending || !pending.emailVerified) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Signup session expired' }),
+        });
+      }
+      if (!body.passkeyCredential && !body.skipPasskey) {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Passkey creation is required to complete signup' }),
+        });
+      }
+      const newUser = {
+        id: `usr_${accountsByPhone.size + 1}`,
+        firstName: pending.firstName,
+        lastName: pending.lastName,
+        phone: pending.phone,
+        email: pending.email,
+        passkeyCredentialId: body.passkeyCredential?.id || null,
+        passkeyCreatedAt: body.passkeyCredential ? new Date().toISOString() : null,
+      };
+      accountsByPhone.set(pending.phone, newUser);
+      pendingSignups.delete(body.signupToken);
+      currentUser = newUser;
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, user: toPublicUser(currentUser) }),
       });
     }
 
@@ -462,7 +590,58 @@ async function setupStatefulE2EMocks(page) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...currentUser }),
+        body: JSON.stringify(toPublicUser(currentUser)),
+      });
+    }
+
+    if (pathname.endsWith('/api/profile/passkey/register/options')) {
+      if (!currentUser) {
+        return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          options: {
+            challenge: 'ZTJlLXByb2ZpbGUtY2hhbGxlbmdl',
+            rp: { name: 'Budget App', id: 'localhost' },
+            user: {
+              id: 'dXNyX3Byb2ZpbGU',
+              name: currentUser.phone,
+              displayName: `${currentUser.firstName} ${currentUser.lastName}`,
+            },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            timeout: 60000,
+            attestation: 'none',
+          },
+        }),
+      });
+    }
+
+    if (pathname.endsWith('/api/profile/passkey/register/verify')) {
+      if (!currentUser || !body.credential?.id) {
+        return route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+      }
+      currentUser.passkeyCredentialId = body.credential.id;
+      currentUser.passkeyCreatedAt = new Date().toISOString();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, user: toPublicUser(currentUser) }),
+      });
+    }
+
+    if (pathname.endsWith('/api/profile/passkey') && method === 'DELETE') {
+      if (!currentUser) {
+        return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+      }
+      currentUser.passkeyCredentialId = null;
+      currentUser.passkeyCreatedAt = null;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, user: toPublicUser(currentUser) }),
       });
     }
 
@@ -488,7 +667,7 @@ async function setupStatefulE2EMocks(page) {
           contentType: 'application/json',
           body: JSON.stringify({
             ok: true,
-            user: { ...currentUser },
+            user: toPublicUser(currentUser),
           }),
         });
       }
@@ -566,6 +745,21 @@ async function main() {
   });
 
   const page = await context.newPage();
+
+  // Enable Chromium CDP Virtual WebAuthn Authenticator so navigator.credentials.create() / get() run for real
+  const cdpSession = await context.newCDPSession(page);
+  await cdpSession.send('WebAuthn.enable');
+  await cdpSession.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  });
+
   await page.addInitScript(() => {
     const style = document.createElement('style');
     style.textContent = `
@@ -580,19 +774,57 @@ async function main() {
       document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
     }
   });
+  const offlineState = { offline: false };
   if (!isRemote) {
-    await setupStatefulE2EMocks(page);
+    await setupStatefulE2EMocks(page, offlineState);
   }
 
   let videoPath = null;
 
   try {
     // -------------------------------------------------------------
-    // TEST SUITE 1: New User Phone OTP -> Sign Up Page -> Email OTP -> /dashboard
+    // TEST SUITE 0: Installable PWA Verification (Manifest + Service Worker)
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 1] New User Phone OTP -> Sign Up Flow (Email OTP) ---');
+    console.log('\n--- [TEST 0] Progressive Web App (Manifest & Service Worker) ---');
     await page.goto(`${webUrl}/login`, { waitUntil: 'networkidle' });
     await sleep(400);
+
+    const pwaInfo = await page.evaluate(async () => {
+      const manifestLink = document.querySelector('link[rel="manifest"]');
+      const manifestHref = manifestLink ? manifestLink.getAttribute('href') : null;
+      let manifest = null;
+      if (manifestHref) {
+        const res = await fetch(manifestHref);
+        manifest = await res.json();
+      }
+      let swScope = null;
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        swScope = reg.scope;
+      }
+      return { manifestHref, manifest, swScope };
+    });
+
+    if (
+      !pwaInfo.manifest ||
+      pwaInfo.manifest.display !== 'standalone' ||
+      !Array.isArray(pwaInfo.manifest.icons) ||
+      pwaInfo.manifest.icons.length < 2
+    ) {
+      throw new Error(`Invalid PWA manifest: ${JSON.stringify(pwaInfo.manifest)}`);
+    }
+    if (!pwaInfo.swScope) {
+      throw new Error('Expected active Service Worker registration for PWA installability');
+    }
+    console.log(
+      `   ✓ Manifest loaded (${pwaInfo.manifest.name}, display=${pwaInfo.manifest.display})`
+    );
+    console.log(`   ✓ Service Worker active at scope: ${pwaInfo.swScope}`);
+
+    // -------------------------------------------------------------
+    // TEST SUITE 1: New User Signup (Phone OTP -> Email OTP -> Passkey) & Passkey Login
+    // -------------------------------------------------------------
+    console.log('\n--- [TEST 1] New User Signup (Email OTP + Passkey) & Passkey Login ---');
 
     const loginHeading = await page.textContent('h1');
     if (!loginHeading?.includes('Budget App')) {
@@ -628,20 +860,42 @@ async function main() {
     await page.click('button[type="submit"]');
     await page.waitForSelector('#emailOtp');
 
-    // Verify invalid email OTP is rejected before creating account
+    // Verify invalid email OTP is rejected before advancing to passkey step
     await page.fill('#emailOtp', '000000');
     await page.click('button[type="submit"]');
     await page.waitForSelector('.signup .error-banner');
     console.log('   ✓ Invalid signup email OTP rejected');
 
-    // Complete signup with valid email OTP -> redirected to /dashboard
+    // Verify valid email OTP -> advances to required Passkey creation step
     await page.fill('#emailOtp', '123456');
+    await page.click('button[type="submit"]');
+    await page.waitForSelector('.btn-create-passkey');
+    const skipBeforeError = await page.locator('.btn-skip-passkey').count();
+    if (skipBeforeError !== 0) {
+      throw new Error('Expected passkey skip button to be hidden until an error occurs');
+    }
+    console.log('   ✓ Email OTP verified -> required Passkey creation step shown');
+
+    // Create passkey via real navigator.credentials.create() -> redirected to /dashboard
+    await page.click('.btn-create-passkey');
+    await page.waitForURL('**/dashboard');
+    await page.waitForSelector('.net-worth-card');
+    console.log(
+      '   ✅ New user created passkey via navigator.credentials.create() and reached /dashboard'
+    );
+
+    // Log out and sign back in with Passkey via navigator.credentials.get()
+    await page.click('.btn-logout');
+    await page.waitForURL('**/login');
+    await page.waitForSelector('#phone');
+
+    await page.fill('#phone', '+15559990001');
     await page.click('button[type="submit"]');
     await page.waitForURL('**/dashboard');
     await page.waitForSelector('.net-worth-card');
-    console.log('   ✅ New user created via /signup email OTP and redirected to /dashboard');
+    console.log('   ✅ Returning user authenticated with passkey via navigator.credentials.get()');
 
-    // Log out to test existing account login
+    // Log out to test existing account OTP login (no passkey)
     await page.click('.btn-logout');
     await page.waitForURL('**/login');
     await page.waitForSelector('#phone');
@@ -756,6 +1010,16 @@ async function main() {
     }
     console.log('   ✅ Profile phone OTP change verified');
 
+    // Add a passkey on the Profile page (via real navigator.credentials.create()) and then delete it
+    await page.waitForSelector('.btn-add-passkey');
+    await page.click('.btn-add-passkey');
+    await page.waitForSelector('.btn-delete-passkey');
+    console.log('   ✓ Added passkey from Profile page');
+
+    await page.click('.btn-delete-passkey');
+    await page.waitForSelector('.btn-add-passkey');
+    console.log('   ✅ Deleted passkey from Profile page');
+
     // -------------------------------------------------------------
     // TEST SUITE 6: AI Financial Assistant Chat Page
     // -------------------------------------------------------------
@@ -774,6 +1038,95 @@ async function main() {
       throw new Error('Expected LLM assistant response with net worth context');
     }
     console.log('   ✅ AI Financial Assistant Chat page verified');
+
+    // -------------------------------------------------------------
+    // TEST SUITE 7: IndexedDB Offline Queueing & Online Replay
+    // -------------------------------------------------------------
+    console.log('\n--- [TEST 7] IndexedDB Offline Queueing & Online Replay ---');
+    // Go offline and submit a chat question -> Service Worker / ApiService persists in IndexedDB mutation_queue
+    offlineState.offline = true;
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await page.fill('#chat-question-input', 'What is my top spending category?');
+    await page.click('.btn-send');
+    await page.waitForSelector('.offline-queue-banner');
+
+    await page.waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('budget-app-offline-db', 1);
+          req.onsuccess = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('mutation_queue')) {
+              db.close();
+              resolve(false);
+              return;
+            }
+            const tx = db.transaction('mutation_queue', 'readonly');
+            const countReq = tx.objectStore('mutation_queue').count();
+            countReq.onsuccess = () => {
+              db.close();
+              resolve(countReq.result >= 1);
+            };
+            countReq.onerror = () => {
+              db.close();
+              resolve(false);
+            };
+          };
+          req.onerror = () => resolve(false);
+        }),
+      null,
+      { timeout: 10000 }
+    );
+
+    const queuedInIdb = await page.evaluate(
+      () =>
+        new Promise((resolve, reject) => {
+          const req = indexedDB.open('budget-app-offline-db', 1);
+          req.onsuccess = () => {
+            const db = req.result;
+            const tx = db.transaction('mutation_queue', 'readonly');
+            const getAll = tx.objectStore('mutation_queue').getAll();
+            getAll.onsuccess = () => {
+              const items = getAll.result || [];
+              db.close();
+              resolve(items);
+            };
+            getAll.onerror = () => reject(getAll.error);
+          };
+          req.onerror = () => reject(req.error);
+        })
+    );
+    if (!Array.isArray(queuedInIdb) || queuedInIdb.length < 1) {
+      throw new Error('Expected offline chat mutation to be persisted in IndexedDB mutation_queue');
+    }
+    console.log(
+      `   ✓ Offline mutation persisted in IndexedDB (${queuedInIdb[0].method} ${queuedInIdb[0].url})`
+    );
+
+    // Go back online -> online event / Service Worker replays queued mutation and empties IndexedDB
+    offlineState.offline = false;
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('budget-app-offline-db', 1);
+          req.onsuccess = () => {
+            const db = req.result;
+            const tx = db.transaction('mutation_queue', 'readonly');
+            const countReq = tx.objectStore('mutation_queue').count();
+            countReq.onsuccess = () => {
+              db.close();
+              resolve(countReq.result === 0);
+            };
+          };
+          req.onerror = () => resolve(false);
+        }),
+      null,
+      { timeout: 10000 }
+    );
+    console.log('   ✅ Reconnected online: IndexedDB queue replayed automatically and cleared');
 
     console.log('\n========================================================================');
     console.log('🎉 ALL PLAYWRIGHT E2E FLOW TESTS PASSED!');

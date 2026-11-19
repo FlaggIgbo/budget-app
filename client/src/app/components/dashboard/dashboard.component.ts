@@ -1,4 +1,5 @@
-import { Component, signal, OnInit, computed } from '@angular/core';
+import { Component, DestroyRef, signal, OnInit, computed } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
@@ -15,6 +16,9 @@ import {
   NetWorthResponse,
   DashboardSummaryResponse,
 } from '../../services/bank.service';
+import { AuthService } from '../../services/auth.service';
+import { PwaService } from '../../services/pwa.service';
+import { OfflineQueueService } from '../../services/offline-queue.service';
 
 export interface InstitutionGroup {
   institutionName: string;
@@ -48,6 +52,12 @@ export interface InstitutionGroup {
           <h1>Budget App</h1>
         </div>
         <div class="header-actions">
+          @if (canInstallApp()) {
+            <button mat-stroked-button class="btn-install-app" (click)="installApp()">
+              <mat-icon>install_mobile</mat-icon>
+              Install App
+            </button>
+          }
           <a mat-button routerLink="/chat" class="link-chat">
             <mat-icon>smart_toy</mat-icon>
             AI Assistant
@@ -65,6 +75,26 @@ export interface InstitutionGroup {
     </mat-toolbar>
 
     <div class="dashboard">
+      @if (passkeyWarning(); as warn) {
+        <div class="passkey-warning-banner" role="alert">
+          <mat-icon class="warning-icon">warning_amber</mat-icon>
+          <span class="warning-message">{{ warn }}</span>
+          <div class="warning-actions">
+            <a mat-stroked-button routerLink="/profile" class="btn-warning-profile">
+              Go to Profile
+            </a>
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Dismiss passkey warning"
+              (click)="dismissPasskeyWarning()"
+            >
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+        </div>
+      }
+
       @if (netWorth(); as nw) {
         <mat-card appearance="outlined" class="section-card net-worth-card">
           <div class="net-worth-header">
@@ -429,6 +459,12 @@ export interface InstitutionGroup {
         color: #475569 !important;
         font-weight: 500;
       }
+      .btn-install-app {
+        border-color: rgba(37, 99, 235, 0.35) !important;
+        color: #1d4ed8 !important;
+        font-size: 0.85rem;
+        font-weight: 600 !important;
+      }
       .btn-logout {
         border-color: rgba(203, 213, 225, 0.8) !important;
         color: #475569 !important;
@@ -445,6 +481,38 @@ export interface InstitutionGroup {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
+      }
+      .passkey-warning-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.9rem 1.15rem;
+        border-radius: 14px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        color: #92400e;
+        flex-wrap: wrap;
+      }
+      .passkey-warning-banner .warning-icon {
+        color: #d97706;
+        flex-shrink: 0;
+      }
+      .passkey-warning-banner .warning-message {
+        flex: 1;
+        font-size: 0.9rem;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+      .passkey-warning-banner .warning-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .btn-warning-profile {
+        border-color: #f59e0b !important;
+        color: #92400e !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
       }
       .section-card {
         padding: 1.5rem;
@@ -1086,12 +1154,41 @@ export class DashboardComponent implements OnInit {
     return result;
   });
 
-  constructor(private bank: BankService) {
+  passkeyWarning = computed(() => this.auth.passkeyWarning());
+  canInstallApp = computed(() => this.pwa.canInstall());
+
+  constructor(
+    private bank: BankService,
+    private auth: AuthService,
+    private pwa: PwaService,
+    private offlineQueue: OfflineQueueService,
+    destroyRef: DestroyRef
+  ) {
     // Check API health status
     this.bank.getHealthStatus().subscribe({
       next: (res) => this.apiStatus.set(res.status),
       error: () => this.apiStatus.set('error'),
     });
+
+    // Reload dashboard data automatically after queued bank sync or disconnect mutations replay
+    this.offlineQueue.replayed$.pipe(takeUntilDestroyed(destroyRef)).subscribe((result) => {
+      const hasBankMutation = result.replayed.some(
+        (item) =>
+          item.url.startsWith('/api/bank/transactions/sync') ||
+          item.url.startsWith('/api/bank/enrollments/')
+      );
+      if (hasBankMutation) {
+        this.loadDashboardData();
+      }
+    });
+  }
+
+  installApp() {
+    this.pwa.promptInstall();
+  }
+
+  dismissPasskeyWarning() {
+    this.auth.clearPasskeyWarning();
   }
 
   ngOnInit() {
@@ -1132,9 +1229,11 @@ export class DashboardComponent implements OnInit {
     }
     this.syncing.set(true);
     this.bank.syncTransactions().subscribe({
-      next: () => {
+      next: (res) => {
         this.syncing.set(false);
-        this.loadDashboardData();
+        if (!(res as { queued?: boolean })?.queued) {
+          this.loadDashboardData();
+        }
       },
       error: () => {
         this.syncing.set(false);
@@ -1149,9 +1248,11 @@ export class DashboardComponent implements OnInit {
     }
     this.disconnecting.set(enrollmentId);
     this.bank.deleteEnrollment(enrollmentId).subscribe({
-      next: () => {
+      next: (res) => {
         this.disconnecting.set(null);
-        this.loadDashboardData();
+        if (!(res as unknown as { queued?: boolean })?.queued) {
+          this.loadDashboardData();
+        }
       },
       error: () => {
         this.disconnecting.set(null);

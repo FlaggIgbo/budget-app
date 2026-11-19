@@ -1,6 +1,7 @@
 const db = require('../models');
 const sessionService = require('../services/session.service');
 const otpService = require('../services/otp.service');
+const passkeyService = require('../services/passkey.service');
 const passwordService = require('../services/password.service');
 
 const COOKIE_NAME = 'session';
@@ -71,7 +72,53 @@ exports.requestSignupEmailOtp = async (req, res, next) => {
   }
 };
 
-// POST /api/auth/signup/complete - Verify email OTP, create User record in DB, and issue session
+// POST /api/auth/signup/verify-email-otp - Verify email OTP during signup before passkey creation
+exports.verifySignupEmailOtp = async (req, res, next) => {
+  try {
+    const code = req.body?.code ?? req.body?.otp;
+    const result = await otpService.verifySignupEmailOtp({
+      signupToken: req.body?.signupToken,
+      firstName: req.body?.firstName,
+      lastName: req.body?.lastName,
+      email: req.body?.email,
+      code,
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+
+    return res.json({
+      ok: true,
+      emailVerified: true,
+      phone: result.phone,
+      email: result.email,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/signup/passkey/options - Generate WebAuthn navigator.credentials.create() options for signup
+exports.getSignupPasskeyOptions = async (req, res, next) => {
+  try {
+    const signupToken = req.body?.signupToken;
+    const pending = await otpService.getPendingSignup(signupToken);
+    const result = await passkeyService.generateSignupRegistrationOptions(
+      pending,
+      signupToken,
+      req
+    );
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+
+    return res.json({ ok: true, options: result.options });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/signup/complete - Complete signup with passkey (or skipPasskey after error), create User, issue session
 exports.completeSignup = async (req, res, next) => {
   try {
     const code = req.body?.code ?? req.body?.otp;
@@ -81,6 +128,8 @@ exports.completeSignup = async (req, res, next) => {
       lastName: req.body?.lastName,
       email: req.body?.email,
       code,
+      passkeyCredential: req.body?.passkeyCredential ?? req.body?.credential,
+      skipPasskey: Boolean(req.body?.skipPasskey),
     });
 
     if (result.error) {
@@ -89,6 +138,38 @@ exports.completeSignup = async (req, res, next) => {
 
     res.cookie(COOKIE_NAME, result.token, COOKIE_OPTIONS);
     return res.status(201).json({
+      ok: true,
+      user: result.user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/passkey/login/options - Look up user by phone in Postgres; if passkey exists, return get() options
+exports.getPasskeyLoginOptions = async (req, res, next) => {
+  try {
+    const result = await passkeyService.generateLoginOptions(req.body?.phone, req);
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/passkey/login/verify - Verify navigator.credentials.get() assertion and issue session
+exports.verifyPasskeyLogin = async (req, res, next) => {
+  try {
+    const result = await passkeyService.verifyLoginAssertion(req.body?.phone, req.body?.credential);
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+
+    res.cookie(COOKIE_NAME, result.token, COOKIE_OPTIONS);
+    return res.json({
       ok: true,
       user: result.user,
     });

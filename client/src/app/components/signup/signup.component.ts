@@ -1,7 +1,8 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -9,7 +10,13 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
+import { WebAuthnService } from '../../services/webauthn.service';
 import { environment } from '../../../environments/environment';
+
+export const PASSKEY_USER_ERROR_WARNING =
+  'Ideally, you should create a passkey. You can do this on the profile page.';
+export const PASSKEY_SERVER_ERROR_WARNING =
+  'Something went wrong, you can use OTP for now, but please try to create a passkey later on your profile page.';
 
 @Component({
   selector: 'app-signup',
@@ -28,17 +35,21 @@ import { environment } from '../../../environments/environment';
     <div class="signup">
       <div class="signup-container">
         <div class="brand-badge">
-          <mat-icon>person_add</mat-icon>
+          <mat-icon>{{ step() === 'passkey' ? 'fingerprint' : 'person_add' }}</mat-icon>
         </div>
         <mat-card appearance="outlined" class="card">
           <mat-card-header class="signup-header">
-            <mat-card-title><h1>Create your account</h1></mat-card-title>
+            <mat-card-title>
+              <h1>{{ step() === 'passkey' ? 'Create a passkey' : 'Create your account' }}</h1>
+            </mat-card-title>
             <mat-card-subtitle class="subtitle">
-              {{
-                step() === 'details'
-                  ? 'Enter your name and email address to finish setting up your account'
-                  : 'Enter the 6-digit code sent to ' + email
-              }}
+              @if (step() === 'details') {
+                Enter your name and email address to finish setting up your account
+              } @else if (step() === 'email-otp') {
+                Enter the 6-digit code sent to {{ email }}
+              } @else {
+                Use your device biometrics, PIN, or security key for fast, secure sign-in
+              }
             </mat-card-subtitle>
           </mat-card-header>
 
@@ -51,7 +62,7 @@ import { environment } from '../../../environments/environment';
               </div>
             }
 
-            @if (!isProduction && sandboxOtp(); as code) {
+            @if (!isProduction && step() !== 'passkey' && sandboxOtp(); as code) {
               <div class="sandbox-banner">
                 <mat-icon>info_outline</mat-icon>
                 <span>Development email OTP (no email sent):</span>
@@ -124,8 +135,8 @@ import { environment } from '../../../environments/environment';
                   Use a different phone number
                 </button>
               </form>
-            } @else {
-              <form (ngSubmit)="completeSignup()" class="form">
+            } @else if (step() === 'email-otp') {
+              <form (ngSubmit)="verifyEmailOtp()" class="form">
                 <mat-form-field appearance="outline">
                   <mat-label><label for="emailOtp">Email verification code</label></mat-label>
                   <mat-icon matPrefix>lock</mat-icon>
@@ -152,7 +163,7 @@ import { environment } from '../../../environments/environment';
                   @if (loading()) {
                     <mat-spinner diameter="20"></mat-spinner>
                   }
-                  {{ loading() ? 'Creating account…' : 'Verify & Create Account' }}
+                  {{ loading() ? 'Verifying…' : 'Verify email & Continue' }}
                 </button>
 
                 <div class="secondary-actions">
@@ -178,6 +189,58 @@ import { environment } from '../../../environments/environment';
                   </button>
                 </div>
               </form>
+            } @else {
+              <div class="passkey-step">
+                <div class="passkey-info-box">
+                  <div class="passkey-icon-circle">
+                    <mat-icon>key</mat-icon>
+                  </div>
+                  <p class="passkey-description">
+                    A passkey lets you sign in securely with Touch ID, Face ID, Windows Hello, or a
+                    security key instead of waiting for an SMS code.
+                  </p>
+                </div>
+
+                @if (passkeyWarning(); as warn) {
+                  <div class="warning-banner" role="alert">
+                    <mat-icon>warning_amber</mat-icon>
+                    <span class="warning-text">{{ warn }}</span>
+                  </div>
+                }
+
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="btn btn-create-passkey"
+                  (click)="createPasskey()"
+                  [disabled]="loading()"
+                >
+                  @if (loading()) {
+                    <mat-spinner diameter="20"></mat-spinner>
+                  } @else {
+                    <mat-icon>fingerprint</mat-icon>
+                  }
+                  {{
+                    loading()
+                      ? 'Setting up passkey…'
+                      : canSkipPasskey()
+                        ? 'Try creating passkey again'
+                        : 'Create Passkey'
+                  }}
+                </button>
+
+                @if (canSkipPasskey()) {
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    class="btn-skip-passkey"
+                    (click)="skipPasskeyAndFinish()"
+                    [disabled]="loading()"
+                  >
+                    Skip for now & continue to dashboard
+                  </button>
+                }
+              </div>
             }
 
             @if (error(); as err) {
@@ -303,10 +366,63 @@ import { environment } from '../../../environments/environment';
         color: #0f172a;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
-      .form {
+      .form,
+      .passkey-step {
         display: flex;
         flex-direction: column;
+        gap: 0.85rem;
+      }
+      .passkey-info-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
         gap: 0.75rem;
+        padding: 1.15rem 1rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+      }
+      .passkey-icon-circle {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: #eef2ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .passkey-icon-circle mat-icon {
+        font-size: 24px;
+        width: 24px;
+        height: 24px;
+      }
+      .passkey-description {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #475569;
+        line-height: 1.5;
+      }
+      .warning-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        padding: 0.85rem 1rem;
+        border-radius: 12px;
+        color: #92400e;
+        font-size: 0.875rem;
+        line-height: 1.45;
+      }
+      .warning-banner mat-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+        color: #d97706;
+        flex-shrink: 0;
+        margin-top: 1px;
       }
       .name-row {
         display: grid;
@@ -342,6 +458,13 @@ import { environment } from '../../../environments/environment';
       .btn:hover:not([disabled]) {
         box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
         transform: translateY(-1px);
+      }
+      .btn-skip-passkey {
+        height: 44px;
+        border-radius: 12px !important;
+        border-color: #cbd5e1 !important;
+        color: #475569 !important;
+        font-weight: 600 !important;
       }
       .secondary-actions {
         display: flex;
@@ -384,23 +507,31 @@ import { environment } from '../../../environments/environment';
     `,
   ],
 })
-export class SignupComponent implements OnInit {
+export class SignupComponent implements OnInit, OnDestroy {
   firstName = '';
   lastName = '';
   email = '';
   emailOtp = '';
 
-  step = signal<'details' | 'email-otp'>('details');
+  step = signal<'details' | 'email-otp' | 'passkey'>('details');
   loading = signal(false);
   error = signal<string | null>(null);
+  passkeyWarning = signal<string | null>(null);
+  canSkipPasskey = signal(false);
   verifiedPhone = signal<string | null>(null);
   sandboxOtp = signal<string | null>(null);
   readonly isProduction = environment.production;
+  private otpAbortController: AbortController | null = null;
 
   constructor(
     private auth: AuthService,
+    private webauthn: WebAuthnService,
     private router: Router
   ) {}
+
+  ngOnDestroy() {
+    this.abortOtpListener();
+  }
 
   ngOnInit() {
     const pending = this.auth.pendingSignup();
@@ -422,12 +553,13 @@ export class SignupComponent implements OnInit {
     }
   }
 
-  // Step 1: Send 6-digit email OTP to confirm the user owns the email address
+  // Step 1: Send 6-digit email OTP and start WebOTP listener for autofill
   sendEmailOtp() {
     if (!this.firstName.trim() || !this.lastName.trim() || !this.email.trim()) {
       return;
     }
 
+    this.abortOtpListener();
     this.error.set(null);
     this.loading.set(true);
 
@@ -435,6 +567,7 @@ export class SignupComponent implements OnInit {
       next: () => {
         this.step.set('email-otp');
         this.loading.set(false);
+        this.listenForEmailOtp();
       },
       error: (err) => {
         const message = err?.error?.error || 'Failed to send verification code';
@@ -444,17 +577,18 @@ export class SignupComponent implements OnInit {
     });
   }
 
-  // Step 2: Verify email OTP, create User record in DB, and navigate to home page
-  completeSignup() {
+  // Step 2: Verify email OTP and advance to required passkey creation step
+  verifyEmailOtp() {
     if (!this.emailOtp.trim()) {
       return;
     }
 
+    this.abortOtpListener();
     this.error.set(null);
     this.loading.set(true);
 
     this.auth
-      .completeSignup(
+      .verifySignupEmailOtp(
         this.firstName.trim(),
         this.lastName.trim(),
         this.email.trim(),
@@ -463,7 +597,9 @@ export class SignupComponent implements OnInit {
       .subscribe({
         next: () => {
           this.loading.set(false);
-          this.router.navigate(['/dashboard']);
+          this.passkeyWarning.set(null);
+          this.canSkipPasskey.set(false);
+          this.step.set('passkey');
         },
         error: (err) => {
           const message = err?.error?.error || 'Invalid verification code';
@@ -473,14 +609,111 @@ export class SignupComponent implements OnInit {
       });
   }
 
+  // Step 3: Create passkey via navigator.credentials.create() and complete signup
+  async createPasskey() {
+    this.error.set(null);
+    this.passkeyWarning.set(null);
+    this.loading.set(true);
+
+    let optionsRes;
+    try {
+      optionsRes = await firstValueFrom(this.auth.getSignupPasskeyOptions());
+    } catch (err: unknown) {
+      this.loading.set(false);
+      this.handlePasskeyError(err, true);
+      return;
+    }
+
+    let credential;
+    try {
+      credential = await this.webauthn.createPasskey(optionsRes.options);
+    } catch (err: unknown) {
+      this.loading.set(false);
+      this.handlePasskeyError(err, false);
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.auth.completeSignupWithPasskey(credential));
+      this.loading.set(false);
+      this.router.navigate(['/dashboard']);
+    } catch (err: unknown) {
+      this.loading.set(false);
+      this.handlePasskeyError(err, true);
+    }
+  }
+
+  // Allow skipping passkey creation only after a user or internal server error occurred
+  skipPasskeyAndFinish() {
+    if (!this.canSkipPasskey()) {
+      return;
+    }
+
+    this.error.set(null);
+    this.loading.set(true);
+
+    const warningMessage = this.passkeyWarning() || PASSKEY_USER_ERROR_WARNING;
+
+    this.auth.completeSignupSkippingPasskey().subscribe({
+      next: () => {
+        this.loading.set(false);
+        this.auth.setPasskeyWarning(warningMessage);
+        this.router.navigate(['/dashboard']);
+      },
+      error: (err) => {
+        const message = err?.error?.error || 'Failed to complete signup';
+        this.error.set(message);
+        this.loading.set(false);
+      },
+    });
+  }
+
+  private handlePasskeyError(err: unknown, isHttpError: boolean): void {
+    const status = (err as { status?: number })?.status;
+    const isServerError =
+      isHttpError && (typeof status !== 'number' || status >= 500 || status === 0);
+
+    if (isServerError) {
+      this.passkeyWarning.set(PASSKEY_SERVER_ERROR_WARNING);
+    } else {
+      this.passkeyWarning.set(PASSKEY_USER_ERROR_WARNING);
+    }
+    this.canSkipPasskey.set(true);
+  }
+
   editDetails() {
+    this.abortOtpListener();
     this.step.set('details');
     this.emailOtp = '';
     this.error.set(null);
   }
 
   backToLogin() {
+    this.abortOtpListener();
     this.auth.clearPendingSignup();
     this.router.navigate(['/login']);
+  }
+
+  private listenForEmailOtp(): void {
+    this.abortOtpListener();
+    if (typeof this.webauthn.receiveOtp !== 'function') {
+      return;
+    }
+    const controller = new AbortController();
+    this.otpAbortController = controller;
+
+    void this.webauthn.receiveOtp('email', controller.signal).then((code) => {
+      if (code && !controller.signal.aborted && this.step() === 'email-otp' && !this.loading()) {
+        this.emailOtp = code;
+        this.verifyEmailOtp();
+      }
+    });
+  }
+
+  private abortOtpListener(): void {
+    if (this.otpAbortController) {
+      this.otpAbortController.abort();
+      this.otpAbortController = null;
+    }
   }
 }

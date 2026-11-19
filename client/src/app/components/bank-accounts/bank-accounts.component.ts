@@ -1,4 +1,5 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
@@ -13,6 +14,7 @@ import {
   BankAccountItem,
   BankConfig,
 } from '../../services/bank.service';
+import { OfflineQueueService } from '../../services/offline-queue.service';
 
 @Component({
   selector: 'app-bank-accounts',
@@ -504,7 +506,20 @@ export class BankAccountsComponent implements OnInit {
   disconnecting = signal<string | null>(null);
   error = signal<string | null>(null);
 
-  constructor(private bank: BankService) {}
+  constructor(
+    private bank: BankService,
+    private offlineQueue: OfflineQueueService,
+    destroyRef: DestroyRef
+  ) {
+    this.offlineQueue.replayed$.pipe(takeUntilDestroyed(destroyRef)).subscribe((result) => {
+      const hasEnrollmentChange = result.replayed.some((item) =>
+        item.url.startsWith('/api/bank/enrollments/')
+      );
+      if (hasEnrollmentChange) {
+        this.loadEnrollments();
+      }
+    });
+  }
 
   ngOnInit() {
     // Step 1: Get Plaid public configuration
@@ -613,8 +628,12 @@ export class BankAccountsComponent implements OnInit {
     this.disconnecting.set(enrollmentId);
 
     this.bank.deleteEnrollment(enrollmentId).subscribe({
-      next: () => {
-        this.loadEnrollments();
+      next: (res) => {
+        if ((res as unknown as { queued?: boolean })?.queued) {
+          this.enrollments.set(this.enrollments().filter((e) => e.enrollmentId !== enrollmentId));
+        } else {
+          this.loadEnrollments();
+        }
         this.disconnecting.set(null);
       },
       error: (err) => {

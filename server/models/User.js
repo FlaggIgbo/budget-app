@@ -82,7 +82,7 @@ function isValidName(name) {
   return normalized.length >= 1 && normalized.length <= 100;
 }
 
-// Return public user fields only (never expose password hash)
+// Return public user fields only (never expose password hash or passkey public key material)
 function toPublicUser(user) {
   if (!user) {
     return null;
@@ -93,12 +93,15 @@ function toPublicUser(user) {
     lastName: user.lastName,
     phone: user.phone,
     email: user.email,
+    hasPasskey: Boolean(user.passkeyCredentialId),
+    passkeyCreatedAt: user.passkeyCreatedAt || null,
   };
 }
 
 module.exports = (sequelize) => {
-  // User table: phone is the primary OTP login identifier; firstName, lastName, and verified email
-  // are collected at signup. The nullable password column is reserved for a future username/password login migration.
+  // User table: phone is the primary login identifier (passkey or OTP fallback); firstName, lastName,
+  // and verified email are collected at signup. Passkey WebAuthn credentials are stored directly on
+  // the user record. The nullable password column is reserved for a future username/password migration.
   const User = sequelize.define(
     'User',
     {
@@ -131,6 +134,32 @@ module.exports = (sequelize) => {
         // TODO: Store a salted password hash (e.g., argon2id or bcrypt) here when migrating
         // from phone OTP authentication to username/password login. Never store plaintext passwords.
       },
+      passkeyCredentialId: {
+        type: DataTypes.STRING(512),
+        allowNull: true,
+        unique: true,
+      },
+      passkeyPublicKey: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      passkeyAlgorithm: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      passkeyCounter: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+      passkeyTransports: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+      },
+      passkeyCreatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: 'users',
@@ -138,6 +167,7 @@ module.exports = (sequelize) => {
       indexes: [
         { fields: ['phone'], unique: true },
         { fields: ['email'], unique: true },
+        { fields: ['passkey_credential_id'], unique: true },
       ],
     }
   );

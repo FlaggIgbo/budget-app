@@ -5,6 +5,7 @@ const { getAppEnvironment } = require('../config/env.config');
 const emailService = require('./email.service');
 const smsService = require('./sms.service');
 const sessionService = require('./session.service');
+const passkeyService = require('./passkey.service');
 
 const OTP_PREFIX = 'otp:';
 const SIGNUP_PREFIX = 'signup:';
@@ -127,6 +128,15 @@ async function getPendingSignup(token) {
   } catch {
     return null;
   }
+}
+
+// Update a pending signup payload in Redis (e.g., after email OTP verification)
+async function updatePendingSignup(token, payload, ttlSeconds = SIGNUP_TTL_SECONDS) {
+  if (!token || typeof token !== 'string') {
+    return;
+  }
+  const client = await getClient();
+  await client.set(getSignupKey(token.trim()), JSON.stringify(payload), { EX: ttlSeconds });
 }
 
 // Delete a pending signup token from Redis
@@ -263,8 +273,8 @@ async function requestSignupEmailOtp(signupToken, emailInput) {
   return { ok: true, message: 'Verification code sent' };
 }
 
-// Verify email OTP during signup, create the User in PostgreSQL, and issue a 1-hour Redis session
-async function completeSignup({ signupToken, firstName, lastName, email, code: rawCode }) {
+// Verify email OTP during signup and mark the pending signup ready for passkey creation
+async function verifySignupEmailOtp({ signupToken, firstName, lastName, email, code: rawCode }) {
   const pending = await getPendingSignup(signupToken);
   if (!pending) {
     return {
@@ -319,13 +329,132 @@ async function completeSignup({ signupToken, firstName, lastName, email, code: r
     return { error: 'Invalid or expired OTP', status: 401 };
   }
 
+  const updatedPending = {
+    phone: pending.phone,
+    firstName: cleanFirstName,
+    lastName: cleanLastName,
+    email: parsedEmail.email,
+    emailVerified: true,
+    pendingUserId: pending.pendingUserId || crypto.randomUUID(),
+  };
+
+  await updatePendingSignup(signupToken, updatedPending);
+
+  return {
+    ok: true,
+    emailVerified: true,
+    phone: updatedPending.phone,
+    email: updatedPending.email,
+  };
+}
+
+// Complete signup: verify passkey (required unless skipPasskey: true after an error), create the
+// User record in PostgreSQL, and issue a 1-hour Redis session.
+async function completeSignup({
+  signupToken,
+  firstName,
+  lastName,
+  email,
+  code: rawCode,
+  passkeyCredential,
+  skipPasskey = false,
+}) {
+  const pending = await getPendingSignup(signupToken);
+  if (!pending) {
+    return {
+      error: 'Signup session expired. Please verify your phone number again.',
+      status: 401,
+    };
+  }
+
+  let cleanFirstName;
+  let cleanLastName;
+  let verifiedEmail;
+
+  if (pending.emailVerified && pending.firstName && pending.lastName && pending.email) {
+    cleanFirstName = pending.firstName;
+    cleanLastName = pending.lastName;
+    verifiedEmail = pending.email;
+  } else {
+    cleanFirstName = db.User.normalizeName(firstName);
+    if (!db.User.isValidName(cleanFirstName)) {
+      return { error: 'First name is required', status: 400 };
+    }
+
+    cleanLastName = db.User.normalizeName(lastName);
+    if (!db.User.isValidName(cleanLastName)) {
+      return { error: 'Last name is required', status: 400 };
+    }
+
+    const parsedEmail = parseEmailInput(email);
+    if (parsedEmail.error) {
+      return parsedEmail;
+    }
+    verifiedEmail = parsedEmail.email;
+
+    const code = typeof rawCode === 'string' ? rawCode.trim() : '';
+    if (!code) {
+      return { error: 'OTP required', status: 400 };
+    }
+
+    let verified = false;
+    if (isSandboxMode() && code === SANDBOX_OTP) {
+      verified = true;
+    } else {
+      const storedCode = await getOtp(verifiedEmail, 'signup');
+      if (storedCode && storedCode === code) {
+        await deleteOtp(verifiedEmail, 'signup');
+        verified = true;
+      }
+    }
+
+    if (!verified) {
+      return { error: 'Invalid or expired OTP', status: 401 };
+    }
+  }
+
+  const existingPhoneUser = await db.User.findOne({ where: { phone: pending.phone } });
+  if (existingPhoneUser) {
+    await deletePendingSignup(signupToken);
+    return { error: 'An account already exists for this phone number', status: 409 };
+  }
+
+  const existingEmailUser = await db.User.findOne({ where: { email: verifiedEmail } });
+  if (existingEmailUser) {
+    return { error: 'Email address is already associated with another account', status: 409 };
+  }
+
+  // Passkey creation is required for signup unless the user explicitly skipped after an error
+  let passkeyFields = {
+    passkeyCredentialId: null,
+    passkeyPublicKey: null,
+    passkeyAlgorithm: null,
+    passkeyCounter: 0,
+    passkeyTransports: null,
+    passkeyCreatedAt: null,
+  };
+
+  if (passkeyCredential) {
+    const passkeyVerification = await passkeyService.verifySignupRegistration(
+      signupToken,
+      passkeyCredential
+    );
+    if (passkeyVerification.error) {
+      return passkeyVerification;
+    }
+    passkeyFields = passkeyVerification.passkey;
+  } else if (skipPasskey !== true) {
+    return { error: 'Passkey creation is required to complete signup', status: 400 };
+  }
+
   // Create the new user in PostgreSQL (password column remains null until password login is implemented)
   const user = await db.User.create({
     firstName: cleanFirstName,
     lastName: cleanLastName,
     phone: pending.phone,
-    email: parsedEmail.email,
+    email: verifiedEmail,
     password: null, // TODO: Hash and store password here if switching to username/password signup
+    ...passkeyFields,
   });
 
   await deletePendingSignup(signupToken);
@@ -508,10 +637,12 @@ module.exports = {
   deleteOtp,
   createPendingSignup,
   getPendingSignup,
+  updatePendingSignup,
   deletePendingSignup,
   requestOtp,
   verifyOtp,
   requestSignupEmailOtp,
+  verifySignupEmailOtp,
   completeSignup,
   requestContactOtp,
   verifyContactOtp,

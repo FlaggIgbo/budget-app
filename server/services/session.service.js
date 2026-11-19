@@ -147,7 +147,15 @@ async function verifySessionToken(token) {
   }
 
   const user = await db.User.findByPk(parsed.userId, {
-    attributes: ['id', 'firstName', 'lastName', 'phone', 'email'],
+    attributes: [
+      'id',
+      'firstName',
+      'lastName',
+      'phone',
+      'email',
+      'passkeyCredentialId',
+      'passkeyCreatedAt',
+    ],
   });
 
   if (!user) {

@@ -34,10 +34,30 @@ function setSmsSender(sender) {
   customSmsSender = sender;
 }
 
-// Send 6-digit OTP login/verification code via Twilio SMS
+// Resolve origin domain for WebOTP origin-bound SMS format (`@<domain> #<code>`)
+function getWebOtpDomain() {
+  if (process.env.WEBAUTHN_RP_ID && process.env.WEBAUTHN_RP_ID.trim()) {
+    return process.env.WEBAUTHN_RP_ID.trim();
+  }
+  const rawOrigin = (
+    process.env.WEBAUTHN_ORIGIN ||
+    process.env.CORS_ORIGIN ||
+    'http://localhost:4200'
+  )
+    .split(',')[0]
+    .trim();
+  try {
+    return new URL(rawOrigin).hostname;
+  } catch {
+    return 'localhost';
+  }
+}
+
+// Send 6-digit OTP login/verification code via Twilio SMS (formatted for WebOTP autofill)
 async function sendOtpSms(toPhone, code) {
   const fromPhone = process.env.TWILIO_PHONE_NUMBER || '+15005550006';
-  const body = `Your Budget App verification code is ${code}. It expires in 5 minutes.`;
+  const domain = getWebOtpDomain();
+  const body = `Your Budget App verification code is ${code}. It expires in 5 minutes.\n\n@${domain} #${code}`;
 
   if (customSmsSender && typeof customSmsSender.sendSms === 'function') {
     return await customSmsSender.sendSms({

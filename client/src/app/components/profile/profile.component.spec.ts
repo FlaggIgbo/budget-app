@@ -4,11 +4,31 @@ import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ProfileComponent } from './profile.component';
 import { UserService } from '../../services/user.service';
+import { WebAuthnService } from '../../services/webauthn.service';
 
 describe('ProfileComponent', () => {
   let component: ProfileComponent;
   let fixture: ComponentFixture<ProfileComponent>;
   let userServiceMock: jasmine.SpyObj<UserService>;
+  let webauthnMock: jasmine.SpyObj<WebAuthnService>;
+
+  const mockPasskeyOptions = {
+    challenge: 'profile-challenge',
+    rp: { name: 'Budget App', id: 'localhost' },
+    user: { id: 'dXNyXzE', name: '+15551234567', displayName: 'Alex Demo' },
+    pubKeyCredParams: [{ type: 'public-key' as const, alg: -7 }],
+  };
+
+  const mockCreatedCredential = {
+    id: 'cred_profile_1',
+    rawId: 'cred_profile_1',
+    type: 'public-key',
+    response: {
+      clientDataJSON: 'Y2xpZW50',
+      attestationObject: 'YXR0ZXN0',
+      transports: ['internal'],
+    },
+  };
 
   beforeEach(async () => {
     userServiceMock = jasmine.createSpyObj<UserService>('UserService', [
@@ -17,6 +37,9 @@ describe('ProfileComponent', () => {
       'verifyEmailChangeOtp',
       'requestPhoneChangeOtp',
       'verifyPhoneChangeOtp',
+      'getPasskeyRegisterOptions',
+      'verifyPasskeyRegister',
+      'deletePasskey',
       'logout',
     ]);
     userServiceMock.getProfile.and.returnValue(
@@ -26,6 +49,8 @@ describe('ProfileComponent', () => {
         lastName: 'Demo',
         phone: '+15551234567',
         email: 'alex@budgetapp.local',
+        hasPasskey: false,
+        passkeyCreatedAt: null,
       })
     );
     userServiceMock.requestEmailChangeOtp.and.returnValue(of({ ok: true }));
@@ -38,6 +63,8 @@ describe('ProfileComponent', () => {
           lastName: 'Demo',
           phone: '+15551234567',
           email: 'newalex@example.com',
+          hasPasskey: false,
+          passkeyCreatedAt: null,
         },
       })
     );
@@ -51,9 +78,48 @@ describe('ProfileComponent', () => {
           lastName: 'Demo',
           phone: '+15559876543',
           email: 'alex@budgetapp.local',
+          hasPasskey: false,
+          passkeyCreatedAt: null,
         },
       })
     );
+    userServiceMock.getPasskeyRegisterOptions.and.returnValue(
+      of({ ok: true, options: mockPasskeyOptions })
+    );
+    userServiceMock.verifyPasskeyRegister.and.returnValue(
+      of({
+        ok: true,
+        user: {
+          id: 'usr_1',
+          firstName: 'Alex',
+          lastName: 'Demo',
+          phone: '+15551234567',
+          email: 'alex@budgetapp.local',
+          hasPasskey: true,
+          passkeyCreatedAt: '2026-11-19T12:00:00.000Z',
+        },
+      })
+    );
+    userServiceMock.deletePasskey.and.returnValue(
+      of({
+        ok: true,
+        user: {
+          id: 'usr_1',
+          firstName: 'Alex',
+          lastName: 'Demo',
+          phone: '+15551234567',
+          email: 'alex@budgetapp.local',
+          hasPasskey: false,
+          passkeyCreatedAt: null,
+        },
+      })
+    );
+    webauthnMock = jasmine.createSpyObj<WebAuthnService>('WebAuthnService', [
+      'createPasskey',
+      'receiveOtp',
+    ]);
+    webauthnMock.createPasskey.and.returnValue(Promise.resolve(mockCreatedCredential));
+    webauthnMock.receiveOtp.and.returnValue(Promise.resolve(null));
 
     await TestBed.configureTestingModule({
       imports: [ProfileComponent],
@@ -61,6 +127,7 @@ describe('ProfileComponent', () => {
         provideNoopAnimations(),
         provideRouter([]),
         { provide: UserService, useValue: userServiceMock },
+        { provide: WebAuthnService, useValue: webauthnMock },
       ],
     }).compileComponents();
 
@@ -76,6 +143,30 @@ describe('ProfileComponent', () => {
     expect(compiled.textContent).toContain('alex@budgetapp.local');
     expect(compiled.querySelector('.btn-edit-phone')).toBeTruthy();
     expect(compiled.querySelector('.btn-edit-email')).toBeTruthy();
+  });
+
+  it('should allow adding a passkey when none exists and deleting it once registered', async () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.btn-add-passkey')).toBeTruthy();
+    expect(compiled.querySelector('.btn-delete-passkey')).toBeNull();
+
+    await component.addPasskey();
+    fixture.detectChanges();
+
+    expect(userServiceMock.getPasskeyRegisterOptions).toHaveBeenCalled();
+    expect(webauthnMock.createPasskey).toHaveBeenCalledWith(mockPasskeyOptions);
+    expect(userServiceMock.verifyPasskeyRegister).toHaveBeenCalledWith(mockCreatedCredential);
+    expect(component.profile()?.hasPasskey).toBeTrue();
+    expect(compiled.querySelector('.btn-add-passkey')).toBeNull();
+    expect(compiled.querySelector('.btn-delete-passkey')).toBeTruthy();
+
+    component.deletePasskey();
+    fixture.detectChanges();
+
+    expect(userServiceMock.deletePasskey).toHaveBeenCalled();
+    expect(component.profile()?.hasPasskey).toBeFalse();
+    expect(compiled.querySelector('.btn-add-passkey')).toBeTruthy();
+    expect(compiled.querySelector('.btn-delete-passkey')).toBeNull();
   });
 
   it('should allow changing email address with OTP confirmation', () => {
@@ -111,5 +202,28 @@ describe('ProfileComponent', () => {
     expect(userServiceMock.verifyPhoneChangeOtp).toHaveBeenCalledWith('+15559876543', '123456');
     expect(component.profile()?.phone).toBe('+15559876543');
     expect(component.editingContact()).toBeNull();
+  });
+
+  it('should autofill profile email and phone OTPs via WebOTP with matching transport', async () => {
+    webauthnMock.receiveOtp.and.returnValue(Promise.resolve('123456'));
+
+    component.startContactChange('email');
+    component.newEmail = 'newalex@example.com';
+    component.sendContactOtp();
+    await Promise.resolve();
+
+    expect(webauthnMock.receiveOtp).toHaveBeenCalledWith('email', jasmine.any(AbortSignal));
+    expect(userServiceMock.verifyEmailChangeOtp).toHaveBeenCalledWith(
+      'newalex@example.com',
+      '123456'
+    );
+
+    component.startContactChange('phone');
+    component.newPhone = '+15559876543';
+    component.sendContactOtp();
+    await Promise.resolve();
+
+    expect(webauthnMock.receiveOtp).toHaveBeenCalledWith('sms', jasmine.any(AbortSignal));
+    expect(userServiceMock.verifyPhoneChangeOtp).toHaveBeenCalledWith('+15559876543', '123456');
   });
 });

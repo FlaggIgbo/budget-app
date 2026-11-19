@@ -1,5 +1,11 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { ApiService } from './api.service';
+import {
+  PasskeyCreationOptionsJSON,
+  PasskeyRequestOptionsJSON,
+  SerializedAuthenticationCredential,
+  SerializedRegistrationCredential,
+} from './webauthn.service';
 import { Observable, tap, catchError, of, map } from 'rxjs';
 
 export interface User {
@@ -8,6 +14,8 @@ export interface User {
   lastName: string;
   phone: string;
   email: string;
+  hasPasskey?: boolean;
+  passkeyCreatedAt?: string | null;
 }
 
 export interface PendingSignup {
@@ -23,6 +31,13 @@ export interface VerifyPhoneOtpResponse {
   signupToken?: string;
 }
 
+export interface PasskeyLoginOptionsResponse {
+  ok: boolean;
+  hasPasskey: boolean;
+  phone?: string;
+  options?: PasskeyRequestOptionsJSON;
+}
+
 export interface AuthConfig {
   environment?: 'development' | 'production';
   plaidConfigured?: boolean;
@@ -31,18 +46,21 @@ export interface AuthConfig {
 }
 
 const PENDING_SIGNUP_STORAGE_KEY = 'budget_app_pending_signup';
+const PASSKEY_WARNING_STORAGE_KEY = 'budget_app_passkey_warning';
 
-// Service to manage login status, signup handoff, and user session (Phone OTP authentication)
+// Service to manage login status, passkey auth, signup handoff, and user session
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private userSignal = signal<User | null>(null);
   private loadedSignal = signal(false);
   private pendingSignupSignal = signal<PendingSignup | null>(this.loadPendingSignup());
+  private passkeyWarningSignal = signal<string | null>(this.loadPasskeyWarning());
 
   user = this.userSignal.asReadonly();
   isLoggedIn = computed(() => this.userSignal() !== null);
   loaded = this.loadedSignal.asReadonly();
   pendingSignup = this.pendingSignupSignal.asReadonly();
+  passkeyWarning = this.passkeyWarningSignal.asReadonly();
 
   constructor(private api: ApiService) {}
 
@@ -75,13 +93,41 @@ export class AuthService {
     }
   }
 
+  private loadPasskeyWarning(): string | null {
+    try {
+      return sessionStorage.getItem(PASSKEY_WARNING_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  setPasskeyWarning(message: string | null): void {
+    this.passkeyWarningSignal.set(message);
+    try {
+      if (message) {
+        sessionStorage.setItem(PASSKEY_WARNING_STORAGE_KEY, message);
+      } else {
+        sessionStorage.removeItem(PASSKEY_WARNING_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage errors in restricted environments
+    }
+  }
+
+  clearPasskeyWarning(): void {
+    this.setPasskeyWarning(null);
+  }
+
   clearPendingSignup(): void {
     this.savePendingSignup(null);
   }
 
-  // Keep auth user signal synced after profile contact updates
+  // Keep auth user signal synced after profile contact or passkey updates
   updateUser(user: User): void {
     this.userSignal.set(user);
+    if (user.hasPasskey) {
+      this.clearPasskeyWarning();
+    }
   }
 
   // Get auth/sandbox configuration for the login / signup pages
@@ -103,6 +149,32 @@ export class AuthService {
         return of(null);
       })
     );
+  }
+
+  // POST /auth/passkey/login/options - Find user by phone and fetch passkey challenge if registered
+  getPasskeyLoginOptions(phone: string): Observable<PasskeyLoginOptionsResponse> {
+    return this.api.post<PasskeyLoginOptionsResponse>('/auth/passkey/login/options', { phone });
+  }
+
+  // POST /auth/passkey/login/verify - Verify navigator.credentials.get() assertion and issue session
+  verifyPasskeyLogin(
+    phone: string,
+    credential: SerializedAuthenticationCredential
+  ): Observable<{ ok: boolean; user: User }> {
+    return this.api
+      .post<{ ok: boolean; user: User }>('/auth/passkey/login/verify', {
+        phone,
+        credential,
+      })
+      .pipe(
+        tap((res) => {
+          if (res.ok && res.user) {
+            this.savePendingSignup(null);
+            this.clearPasskeyWarning();
+            this.userSignal.set(res.user);
+          }
+        })
+      );
   }
 
   // POST /otp/request - Send 6-digit SMS verification code to phone number
@@ -137,21 +209,65 @@ export class AuthService {
     });
   }
 
-  // POST /auth/signup/complete - Verify email OTP, create User record, and issue session
-  completeSignup(
+  // POST /auth/signup/verify-email-otp - Verify email OTP during signup before passkey creation step
+  verifySignupEmailOtp(
     firstName: string,
     lastName: string,
     email: string,
     code: string
-  ): Observable<{ ok: boolean; user: User }> {
+  ): Observable<{ ok: boolean; emailVerified: boolean; phone?: string; email?: string }> {
     const pending = this.pendingSignupSignal();
-    return this.api
-      .post<{ ok: boolean; user: User }>('/auth/signup/complete', {
+    return this.api.post<{ ok: boolean; emailVerified: boolean; phone?: string; email?: string }>(
+      '/auth/signup/verify-email-otp',
+      {
         signupToken: pending?.signupToken || '',
         firstName,
         lastName,
         email,
         code,
+      }
+    );
+  }
+
+  // POST /auth/signup/passkey/options - Fetch WebAuthn options for navigator.credentials.create()
+  getSignupPasskeyOptions(): Observable<{ ok: boolean; options: PasskeyCreationOptionsJSON }> {
+    const pending = this.pendingSignupSignal();
+    return this.api.post<{ ok: boolean; options: PasskeyCreationOptionsJSON }>(
+      '/auth/signup/passkey/options',
+      {
+        signupToken: pending?.signupToken || '',
+      }
+    );
+  }
+
+  // POST /auth/signup/complete - Complete signup with newly created passkey
+  completeSignupWithPasskey(
+    passkeyCredential: SerializedRegistrationCredential
+  ): Observable<{ ok: boolean; user: User }> {
+    const pending = this.pendingSignupSignal();
+    return this.api
+      .post<{ ok: boolean; user: User }>('/auth/signup/complete', {
+        signupToken: pending?.signupToken || '',
+        passkeyCredential,
+      })
+      .pipe(
+        tap((res) => {
+          if (res.ok && res.user) {
+            this.savePendingSignup(null);
+            this.clearPasskeyWarning();
+            this.userSignal.set(res.user);
+          }
+        })
+      );
+  }
+
+  // POST /auth/signup/complete - Complete signup skipping passkey creation after an error
+  completeSignupSkippingPasskey(): Observable<{ ok: boolean; user: User }> {
+    const pending = this.pendingSignupSignal();
+    return this.api
+      .post<{ ok: boolean; user: User }>('/auth/signup/complete', {
+        signupToken: pending?.signupToken || '',
+        skipPasskey: true,
       })
       .pipe(
         tap((res) => {
@@ -182,6 +298,7 @@ export class AuthService {
       tap(() => {
         this.userSignal.set(null);
         this.savePendingSignup(null);
+        this.clearPasskeyWarning();
       })
     );
   }

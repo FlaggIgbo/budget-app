@@ -16,6 +16,7 @@ const MIME_TYPES = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
@@ -262,6 +263,9 @@ async function setupApiMockRoutes(page, options = {}) {
     emptyData = false,
     profileEmail = 'alex@budgetapp.local',
     plaidConfigured = true,
+    hasPasskey = false,
+    passkeyCreatedAt = hasPasskey ? '2026-11-15T12:00:00.000Z' : null,
+    signupPasskeyOptionsStatus = 200,
   } = options;
 
   // Provide deterministic local sans-serif @font-face mappings without hanging networkidle in offline environments
@@ -304,7 +308,7 @@ async function setupApiMockRoutes(page, options = {}) {
     }
   });
 
-  await page.route('**/api/**', (route) => {
+  await page.context().route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const pathname = url.pathname;
 
@@ -347,8 +351,18 @@ async function setupApiMockRoutes(page, options = {}) {
             lastName: 'Demo',
             phone: '+15551234567',
             email: profileEmail,
+            hasPasskey,
+            passkeyCreatedAt,
           },
         }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/passkey/login/options')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, hasPasskey: false }),
       });
     }
 
@@ -404,6 +418,37 @@ async function setupApiMockRoutes(page, options = {}) {
       });
     }
 
+    if (pathname.endsWith('/api/auth/signup/verify-email-otp')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, emailVerified: true }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/passkey/options')) {
+      if (signupPasskeyOptionsStatus >= 500) {
+        return route.fulfill({
+          status: signupPasskeyOptionsStatus,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Internal server error' }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          options: {
+            challenge: 'c2NyZWVuc2hvdC1jaGFsbGVuZ2U',
+            rp: { name: 'Budget App', id: 'localhost' },
+            user: { id: 'dXNyXzI', name: '+15559990001', displayName: 'Jordan Lee' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+          },
+        }),
+      });
+    }
+
     if (pathname.endsWith('/api/auth/signup/complete')) {
       return route.fulfill({
         status: 201,
@@ -416,6 +461,8 @@ async function setupApiMockRoutes(page, options = {}) {
             lastName: 'Lee',
             phone: '+15559990001',
             email: 'jordan@example.com',
+            hasPasskey: false,
+            passkeyCreatedAt: null,
           },
         }),
       });
@@ -486,6 +533,8 @@ async function setupApiMockRoutes(page, options = {}) {
           lastName: 'Demo',
           phone: '+15551234567',
           email: profileEmail,
+          hasPasskey,
+          passkeyCreatedAt,
         }),
       });
     }
@@ -670,6 +719,48 @@ async function generateScreenshots() {
     });
     savedFiles.push('screenshots/pages/signup-page-email-otp.png');
     console.log('  ✓ pages/signup-page-email-otp.png');
+
+    // Advance to Sign Up Passkey creation step
+    await signupPage.fill('#emailOtp', '123456');
+    await signupPage.click('button[type="submit"]');
+    await signupPage.waitForSelector('.btn-create-passkey');
+    await applyDeterministicStyles(signupPage);
+
+    // Component: Sign Up Card (Passkey creation step)
+    await signupPage.locator('.signup .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'signup-card-passkey.png'),
+    });
+    savedFiles.push('screenshots/components/signup-card-passkey.png');
+    console.log('  ✓ components/signup-card-passkey.png');
+
+    // Page: Sign Up Page (Passkey creation step)
+    await signupPage.screenshot({
+      path: path.join(PAGES_DIR, 'signup-page-passkey.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/signup-page-passkey.png');
+    console.log('  ✓ pages/signup-page-passkey.png');
+
+    // Trigger user error on passkey creation to capture the warning banner & Skip option
+    await signupPage.evaluate(() => {
+      Object.defineProperty(navigator, 'credentials', {
+        configurable: true,
+        value: {
+          create: () => Promise.reject(new DOMException('User cancelled', 'NotAllowedError')),
+          get: () => Promise.reject(new DOMException('User cancelled', 'NotAllowedError')),
+        },
+      });
+    });
+    await signupPage.click('.btn-create-passkey');
+    await signupPage.waitForSelector('.warning-banner');
+    await applyDeterministicStyles(signupPage);
+
+    // Component: Sign Up Card (Passkey warning banner + Skip button)
+    await signupPage.locator('.signup .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'signup-card-passkey-warning.png'),
+    });
+    savedFiles.push('screenshots/components/signup-card-passkey-warning.png');
+    console.log('  ✓ components/signup-card-passkey-warning.png');
     await signupPage.close();
 
     // 2. Dashboard Page & Dashboard Components
@@ -800,6 +891,13 @@ async function generateScreenshots() {
     savedFiles.push('screenshots/components/profile-card-unlinked.png');
     console.log('  ✓ components/profile-card-unlinked.png');
 
+    // Component: Profile Passkey Card (Not set up / Add Passkey)
+    await profilePage.locator('.passkey-card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'profile-passkey-card.png'),
+    });
+    savedFiles.push('screenshots/components/profile-passkey-card.png');
+    console.log('  ✓ components/profile-passkey-card.png');
+
     // Page: Profile Page
     await profilePage.screenshot({
       path: path.join(PAGES_DIR, 'profile-page.png'),
@@ -807,6 +905,29 @@ async function generateScreenshots() {
     });
     savedFiles.push('screenshots/pages/profile-page.png');
     console.log('  ✓ pages/profile-page.png');
+
+    // Profile Page with Passkey Enabled (Delete Passkey button)
+    const profileWithPasskeyPage = await browser.newPage({
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: 2,
+      timezoneId: 'America/New_York',
+      locale: 'en-US',
+    });
+    await setupApiMockRoutes(profileWithPasskeyPage, {
+      authenticated: true,
+      profileEmail: 'alex@budgetapp.local',
+      hasPasskey: true,
+    });
+    await profileWithPasskeyPage.goto(`${baseUrl}/profile`, { waitUntil: 'networkidle' });
+    await applyDeterministicStyles(profileWithPasskeyPage);
+    await profileWithPasskeyPage.waitForSelector('.btn-delete-passkey');
+    await profileWithPasskeyPage.screenshot({
+      path: path.join(PAGES_DIR, 'profile-page-with-passkey.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/profile-page-with-passkey.png');
+    console.log('  ✓ pages/profile-page-with-passkey.png');
+    await profileWithPasskeyPage.close();
 
     // Open Email Verification Card
     await profilePage.click('.btn-edit-email');

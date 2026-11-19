@@ -20,10 +20,11 @@ By tracking component and page screenshots in Git, every pull request automatica
 ```
 screenshots/
 ├── components/   # Isolated UI component snapshots across various states
-│                 # (login phone/OTP cards, net worth, cash flow, category bars,
-│                 #  quick stats, transactions filter, Plaid enrollment card, profile email verification)
+│                 # (login phone/OTP cards, signup details/email OTP/passkey/warning cards,
+│                 #  net worth, cash flow, category bars, quick stats, transactions filter,
+│                 #  Plaid enrollment card, profile contact verification & passkey management)
 └── pages/        # Full-page responsive views across desktop (1280x800) and mobile (390x844)
-                  # viewports for Login, Dashboard, Bank Accounts, and Profile routes
+                  # viewports for Login, Signup, Dashboard, Bank Accounts, Profile, and Chat routes
 ```
 
 Snapshots are configured and driven by `scripts/generate-screenshots.js` using deterministic data, mocked API responses, and disabled animations.

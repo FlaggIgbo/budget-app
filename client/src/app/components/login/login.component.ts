@@ -1,7 +1,8 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -9,6 +10,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
+import { PasskeyRequestOptionsJSON, WebAuthnService } from '../../services/webauthn.service';
 import { environment } from '../../../environments/environment';
 
 @Component({
@@ -28,12 +30,20 @@ import { environment } from '../../../environments/environment';
     <div class="login">
       <div class="login-container">
         <div class="brand-badge">
-          <mat-icon>account_balance_wallet</mat-icon>
+          <mat-icon>{{ step() === 'passkey' ? 'fingerprint' : 'account_balance_wallet' }}</mat-icon>
         </div>
         <mat-card appearance="outlined" class="card">
           <mat-card-header class="login-header">
             <mat-card-title><h1>Budget App</h1></mat-card-title>
-            <mat-card-subtitle class="subtitle">Sign in with your phone number</mat-card-subtitle>
+            <mat-card-subtitle class="subtitle">
+              @if (step() === 'phone') {
+                Sign in with your phone number
+              } @else if (step() === 'passkey') {
+                Verify with your passkey for {{ phone }}
+              } @else {
+                Enter the 6-digit code sent to {{ phone }}
+              }
+            </mat-card-subtitle>
           </mat-card-header>
 
           <mat-card-content>
@@ -61,7 +71,7 @@ import { environment } from '../../../environments/environment';
             }
 
             @if (step() === 'phone') {
-              <form (ngSubmit)="sendOtp()" class="form">
+              <form (ngSubmit)="continueWithPhone()" class="form">
                 <mat-form-field appearance="outline">
                   <mat-label><label for="phone">Phone number</label></mat-label>
                   <mat-icon matPrefix>phone</mat-icon>
@@ -85,9 +95,46 @@ import { environment } from '../../../environments/environment';
                   @if (loading()) {
                     <mat-spinner diameter="20"></mat-spinner>
                   }
-                  {{ loading() ? 'Sending…' : 'Send verification code' }}
+                  {{ loading() ? 'Continuing…' : 'Continue' }}
                 </button>
               </form>
+            } @else if (step() === 'passkey') {
+              <div class="form">
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="btn btn-retry-passkey"
+                  (click)="authenticateWithPasskey()"
+                  [disabled]="loading()"
+                >
+                  @if (loading()) {
+                    <mat-spinner diameter="20"></mat-spinner>
+                  } @else {
+                    <mat-icon>fingerprint</mat-icon>
+                  }
+                  {{ loading() ? 'Verifying passkey…' : 'Sign in with passkey' }}
+                </button>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="btn-secondary"
+                  (click)="sendOtp()"
+                  [disabled]="loading()"
+                >
+                  <mat-icon>sms</mat-icon>
+                  Use SMS verification code instead
+                </button>
+                <button
+                  mat-button
+                  type="button"
+                  class="btn-link"
+                  (click)="resetToPhone()"
+                  [disabled]="loading()"
+                >
+                  <mat-icon>arrow_back</mat-icon>
+                  Change phone number
+                </button>
+              </div>
             } @else {
               <form (ngSubmit)="verifyOtp()" class="form">
                 <mat-form-field appearance="outline">
@@ -115,7 +162,7 @@ import { environment } from '../../../environments/environment';
                   }
                   {{ loading() ? 'Verifying…' : 'Verify & Continue' }}
                 </button>
-                <button mat-button type="button" class="btn-link" (click)="step.set('phone')">
+                <button mat-button type="button" class="btn-link" (click)="resetToPhone()">
                   <mat-icon>arrow_back</mat-icon>
                   Change phone number
                 </button>
@@ -287,6 +334,17 @@ import { environment } from '../../../environments/environment';
         box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
         transform: translateY(-1px);
       }
+      .btn-secondary {
+        height: 44px;
+        border-radius: 12px !important;
+        border-color: #cbd5e1 !important;
+        color: #334155 !important;
+        font-weight: 600 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+      }
       .btn-link {
         color: #475569 !important;
         font-weight: 500;
@@ -323,19 +381,25 @@ import { environment } from '../../../environments/environment';
     `,
   ],
 })
-export class LoginComponent implements OnInit {
+export class LoginComponent implements OnInit, OnDestroy {
   phone = '';
   otp = '';
-  step = signal<'phone' | 'otp'>('phone');
+  step = signal<'phone' | 'passkey' | 'otp'>('phone');
   loading = signal(false);
   error = signal<string | null>(null);
   sandbox = signal<{ phone: string; otp: string } | null>(null);
   readonly isProduction = environment.production;
+  private otpAbortController: AbortController | null = null;
 
   constructor(
     private auth: AuthService,
+    private webauthn: WebAuthnService,
     private router: Router
   ) {}
+
+  ngOnDestroy() {
+    this.abortOtpListener();
+  }
 
   ngOnInit() {
     // Only display development test account credentials outside production
@@ -350,8 +414,89 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  // Send SMS verification code
+  // Look up account by phone: authenticate with passkey via navigator.credentials.get() if registered,
+  // otherwise proceed with SMS OTP (for new users or users without a passkey)
+  async continueWithPhone() {
+    if (!this.phone.trim()) {
+      return;
+    }
+
+    this.error.set(null);
+    this.loading.set(true);
+
+    try {
+      const res = await firstValueFrom(this.auth.getPasskeyLoginOptions(this.phone));
+      if (res.hasPasskey && res.options) {
+        await this.completePasskeyLogin(res.options);
+        return;
+      }
+      // No passkey associated with this phone number (or new account) -> proceed to SMS OTP
+      this.sendOtp();
+    } catch (err: unknown) {
+      const httpErr = err as { status?: number; error?: { error?: string } };
+      if (httpErr?.status === 400) {
+        this.error.set(httpErr?.error?.error || 'Valid phone number required');
+        this.loading.set(false);
+        return;
+      }
+      // On unexpected server error during passkey lookup, fall back to OTP
+      this.sendOtp();
+    }
+  }
+
+  // Re-request a fresh passkey challenge and call navigator.credentials.get()
+  async authenticateWithPasskey() {
+    this.error.set(null);
+    this.loading.set(true);
+
+    try {
+      const res = await firstValueFrom(this.auth.getPasskeyLoginOptions(this.phone));
+      if (!res.hasPasskey || !res.options) {
+        this.sendOtp();
+        return;
+      }
+      await this.completePasskeyLogin(res.options);
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.error.set(
+        httpErr?.error?.error || 'Passkey sign-in failed. You can try again or use SMS.'
+      );
+      this.step.set('passkey');
+      this.loading.set(false);
+    }
+  }
+
+  private async completePasskeyLogin(options: PasskeyRequestOptionsJSON): Promise<void> {
+    let credential;
+    try {
+      credential = await this.webauthn.getPasskey(options);
+    } catch {
+      this.error.set(
+        'Passkey authentication was cancelled or failed. Try again or sign in with an SMS code.'
+      );
+      this.step.set('passkey');
+      this.loading.set(false);
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.auth.verifyPasskeyLogin(this.phone, credential));
+      this.loading.set(false);
+      this.router.navigate(['/dashboard']);
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.error.set(
+        httpErr?.error?.error ||
+          'Passkey verification failed. Try again or sign in with an SMS code.'
+      );
+      this.step.set('passkey');
+      this.loading.set(false);
+    }
+  }
+
+  // Send SMS verification code and start WebOTP listener for autofill
   sendOtp() {
+    this.abortOtpListener();
     this.error.set(null);
     this.loading.set(true);
 
@@ -359,6 +504,7 @@ export class LoginComponent implements OnInit {
       next: () => {
         this.step.set('otp');
         this.loading.set(false);
+        this.listenForSmsOtp();
       },
       error: (err) => {
         const message = err?.error?.error || 'Failed to send code';
@@ -370,6 +516,7 @@ export class LoginComponent implements OnInit {
 
   // Verify SMS code: navigate to home page if account exists, or to sign up page if new user
   verifyOtp() {
+    this.abortOtpListener();
     this.error.set(null);
     this.loading.set(true);
 
@@ -388,6 +535,36 @@ export class LoginComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  resetToPhone() {
+    this.abortOtpListener();
+    this.step.set('phone');
+    this.otp = '';
+    this.error.set(null);
+  }
+
+  private listenForSmsOtp(): void {
+    this.abortOtpListener();
+    if (typeof this.webauthn.receiveOtp !== 'function') {
+      return;
+    }
+    const controller = new AbortController();
+    this.otpAbortController = controller;
+
+    void this.webauthn.receiveOtp('sms', controller.signal).then((code) => {
+      if (code && !controller.signal.aborted && this.step() === 'otp' && !this.loading()) {
+        this.otp = code;
+        this.verifyOtp();
+      }
+    });
+  }
+
+  private abortOtpListener(): void {
+    if (this.otpAbortController) {
+      this.otpAbortController.abort();
+      this.otpAbortController = null;
+    }
   }
 
   // TODO: Add username/password login form mode calling `auth.loginWithPassword(...)`

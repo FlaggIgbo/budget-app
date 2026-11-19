@@ -1,4 +1,5 @@
-import { Component, signal } from '@angular/core';
+import { Component, DestroyRef, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -10,8 +11,14 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { ChatService, ChatMessage, ChatContextSummary } from '../../services/chat.service';
+import {
+  ChatService,
+  ChatMessage,
+  ChatContextSummary,
+  ChatAskResponse,
+} from '../../services/chat.service';
 import { AuthService } from '../../services/auth.service';
+import { OfflineQueueService } from '../../services/offline-queue.service';
 
 @Component({
   selector: 'app-chat',
@@ -542,8 +549,32 @@ export class ChatComponent {
 
   constructor(
     private chatService: ChatService,
-    private auth: AuthService
-  ) {}
+    private auth: AuthService,
+    private offlineQueue: OfflineQueueService,
+    destroyRef: DestroyRef
+  ) {
+    // Append replayed chat answers automatically when offline queued questions sync
+    this.offlineQueue.replayed$.pipe(takeUntilDestroyed(destroyRef)).subscribe((result) => {
+      for (const item of result.replayed) {
+        if (item.url.startsWith('/api/chat/ask') && item.responseBody) {
+          const res = item.responseBody as ChatAskResponse;
+          if (res.reply) {
+            this.messages.set([
+              ...this.messages(),
+              {
+                role: 'assistant',
+                content: res.reply,
+                timestamp: new Date().toISOString(),
+              },
+            ]);
+          }
+          if (res.contextSummary) {
+            this.contextSummary.set(res.contextSummary);
+          }
+        }
+      }
+    });
+  }
 
   useSuggestedPrompt(prompt: string) {
     this.question = prompt;
@@ -570,9 +601,13 @@ export class ChatComponent {
 
     this.chatService.askQuestion(trimmed, currentHistory).subscribe({
       next: (res) => {
+        const assistantContent = res.queued
+          ? res.message ||
+            'You are offline. Your question was queued and will be sent automatically when you reconnect.'
+          : res.reply || 'No response received.';
         const assistantMsg: ChatMessage = {
           role: 'assistant',
-          content: res.reply,
+          content: assistantContent,
           timestamp: new Date().toISOString(),
         };
         this.messages.set([...this.messages(), assistantMsg]);

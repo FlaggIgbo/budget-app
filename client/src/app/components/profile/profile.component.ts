@@ -1,7 +1,8 @@
-import { Component, signal, OnInit } from '@angular/core';
+import { Component, OnDestroy, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,6 +12,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { UserService, UserProfile } from '../../services/user.service';
+import { WebAuthnService } from '../../services/webauthn.service';
 
 export type Profile = UserProfile;
 
@@ -253,7 +255,7 @@ export type Profile = UserProfile;
                       <mat-icon>check_circle</mat-icon>
                       {{ editLoading() ? 'Verifying…' : 'Verify & save' }}
                     </button>
-                    <button mat-button type="button" (click)="editStep.set('input')">Back</button>
+                    <button mat-button type="button" (click)="backToContactInput()">Back</button>
                     <button
                       mat-button
                       type="button"
@@ -282,6 +284,83 @@ export type Profile = UserProfile;
             <span>{{ msg }}</span>
           </div>
         }
+
+        <mat-card appearance="outlined" class="passkey-card">
+          <div class="passkey-header">
+            <div class="passkey-icon-wrap">
+              <mat-icon>fingerprint</mat-icon>
+            </div>
+            <div class="passkey-title-wrap">
+              <div class="passkey-title-row">
+                <h2>Passkey</h2>
+                @if (p.hasPasskey) {
+                  <span class="passkey-badge passkey-badge-active">
+                    <mat-icon>verified</mat-icon>
+                    Enabled
+                  </span>
+                } @else {
+                  <span class="passkey-badge passkey-badge-missing">Not set up</span>
+                }
+              </div>
+              <p class="subtitle">
+                Sign in quickly and securely with your device biometrics, PIN, or security key
+              </p>
+            </div>
+          </div>
+
+          <mat-card-content class="passkey-body">
+            @if (p.hasPasskey) {
+              <div class="passkey-row">
+                <div class="passkey-meta">
+                  <span class="passkey-status-label">Registered passkey</span>
+                  <span class="passkey-status-detail">
+                    @if (p.passkeyCreatedAt) {
+                      Added on {{ p.passkeyCreatedAt | date: 'mediumDate' }}
+                    } @else {
+                      Active for passwordless sign-in
+                    }
+                  </span>
+                </div>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="btn-delete-passkey"
+                  (click)="deletePasskey()"
+                  [disabled]="passkeyLoading()"
+                >
+                  <mat-icon>delete_outline</mat-icon>
+                  {{ passkeyLoading() ? 'Deleting…' : 'Delete Passkey' }}
+                </button>
+              </div>
+            } @else {
+              <div class="passkey-row">
+                <div class="passkey-meta">
+                  <span class="passkey-status-label">No passkey registered</span>
+                  <span class="passkey-status-detail">
+                    Add a passkey so you can sign in without waiting for SMS codes.
+                  </span>
+                </div>
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="btn-primary btn-add-passkey"
+                  (click)="addPasskey()"
+                  [disabled]="passkeyLoading()"
+                >
+                  <mat-icon>add</mat-icon>
+                  {{ passkeyLoading() ? 'Adding…' : 'Add Passkey' }}
+                </button>
+              </div>
+            }
+
+            @if (passkeyError(); as pkErr) {
+              <div class="error-banner">
+                <mat-icon>error_outline</mat-icon>
+                <span>{{ pkErr }}</span>
+              </div>
+            }
+          </mat-card-content>
+        </mat-card>
       } @else if (error()) {
         <div class="error-banner">
           <mat-icon>error_outline</mat-icon>
@@ -597,11 +676,120 @@ export type Profile = UserProfile;
         padding: 0.85rem 1.15rem;
         border-radius: 12px;
         margin-top: 1rem;
+        margin-bottom: 1.5rem;
         font-size: 0.9rem;
         background: #ecfdf5;
         border: 1px solid #a7f3d0;
         color: #047857;
         font-weight: 500;
+      }
+      .passkey-card {
+        background: #ffffff !important;
+        border: 1px solid rgba(226, 232, 240, 0.9) !important;
+        border-radius: 18px !important;
+        box-shadow:
+          0 4px 6px -1px rgba(15, 23, 42, 0.03),
+          0 2px 4px -2px rgba(15, 23, 42, 0.03) !important;
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+      }
+      .passkey-header {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        background: #f8fafc;
+        border-bottom: 1px solid #f1f5f9;
+      }
+      .passkey-icon-wrap {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #eef2ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .passkey-icon-wrap mat-icon {
+        font-size: 24px;
+        width: 24px;
+        height: 24px;
+      }
+      .passkey-title-wrap {
+        flex: 1;
+      }
+      .passkey-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.2rem;
+      }
+      .passkey-header h2 {
+        margin: 0;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .passkey-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.15rem 0.55rem;
+        border-radius: 9999px;
+      }
+      .passkey-badge mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+      .passkey-badge-active {
+        color: #047857;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+      }
+      .passkey-badge-missing {
+        color: #92400e;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+      }
+      .passkey-body {
+        padding: 1.5rem !important;
+      }
+      .passkey-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      .passkey-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        flex: 1;
+        min-width: 200px;
+      }
+      .passkey-status-label {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .passkey-status-detail {
+        font-size: 0.875rem;
+        color: #64748b;
+      }
+      .btn-delete-passkey {
+        border-color: #fecaca !important;
+        color: #dc2626 !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+      }
+      .btn-delete-passkey:hover:not([disabled]) {
+        background: #fef2f2 !important;
       }
       .loading-wrap {
         padding: 2rem 1rem;
@@ -615,7 +803,7 @@ export type Profile = UserProfile;
     `,
   ],
 })
-export class ProfileComponent implements OnInit {
+export class ProfileComponent implements OnInit, OnDestroy {
   profile = signal<Profile | null>(null);
   error = signal<string | null>(null);
 
@@ -624,12 +812,22 @@ export class ProfileComponent implements OnInit {
   editLoading = signal(false);
   editError = signal<string | null>(null);
   successMessage = signal<string | null>(null);
+  passkeyLoading = signal(false);
+  passkeyError = signal<string | null>(null);
 
   newEmail = '';
   newPhone = '';
   contactOtpCode = '';
+  private otpAbortController: AbortController | null = null;
 
-  constructor(private userService: UserService) {}
+  constructor(
+    private userService: UserService,
+    private webauthn: WebAuthnService
+  ) {}
+
+  ngOnDestroy() {
+    this.abortOtpListener();
+  }
 
   ngOnInit() {
     this.userService.getProfile().subscribe({
@@ -640,6 +838,7 @@ export class ProfileComponent implements OnInit {
 
   // Open the form to change either email address or phone number
   startContactChange(target: 'email' | 'phone') {
+    this.abortOtpListener();
     this.editingContact.set(target);
     this.editStep.set('input');
     this.newEmail = '';
@@ -649,13 +848,20 @@ export class ProfileComponent implements OnInit {
     this.successMessage.set(null);
   }
 
+  // Return to contact input step and cancel any pending WebOTP listener
+  backToContactInput() {
+    this.abortOtpListener();
+    this.editStep.set('input');
+  }
+
   // Cancel the active contact change flow
   cancelContactChange() {
+    this.abortOtpListener();
     this.editingContact.set(null);
     this.editError.set(null);
   }
 
-  // Step 1: Request 6-digit OTP for the new email address or phone number
+  // Step 1: Request 6-digit OTP for the new email address or phone number and start WebOTP autofill
   sendContactOtp() {
     const target = this.editingContact();
     if (!target) {
@@ -667,6 +873,7 @@ export class ProfileComponent implements OnInit {
       return;
     }
 
+    this.abortOtpListener();
     this.editLoading.set(true);
     this.editError.set(null);
 
@@ -679,6 +886,7 @@ export class ProfileComponent implements OnInit {
       next: () => {
         this.editStep.set('otp');
         this.editLoading.set(false);
+        this.listenForContactOtp(target);
       },
       error: (err) => {
         const message = err?.error?.error || 'Failed to send verification code';
@@ -695,6 +903,7 @@ export class ProfileComponent implements OnInit {
       return;
     }
 
+    this.abortOtpListener();
     const value = target === 'email' ? this.newEmail.trim() : this.newPhone.trim();
     this.editLoading.set(true);
     this.editError.set(null);
@@ -719,6 +928,103 @@ export class ProfileComponent implements OnInit {
         const message = err?.error?.error || 'Invalid verification code';
         this.editError.set(message);
         this.editLoading.set(false);
+      },
+    });
+  }
+
+  private listenForContactOtp(target: 'email' | 'phone'): void {
+    this.abortOtpListener();
+    if (typeof this.webauthn.receiveOtp !== 'function') {
+      return;
+    }
+    const controller = new AbortController();
+    this.otpAbortController = controller;
+    const transport = target === 'phone' ? 'sms' : 'email';
+
+    void this.webauthn.receiveOtp(transport, controller.signal).then((code) => {
+      if (
+        code &&
+        !controller.signal.aborted &&
+        this.editingContact() === target &&
+        this.editStep() === 'otp' &&
+        !this.editLoading()
+      ) {
+        this.contactOtpCode = code;
+        this.verifyContactOtp();
+      }
+    });
+  }
+
+  private abortOtpListener(): void {
+    if (this.otpAbortController) {
+      this.otpAbortController.abort();
+      this.otpAbortController = null;
+    }
+  }
+
+  // Add a passkey via navigator.credentials.create() when the user does not have one
+  async addPasskey() {
+    this.passkeyLoading.set(true);
+    this.passkeyError.set(null);
+    this.successMessage.set(null);
+
+    let optionsRes;
+    try {
+      optionsRes = await firstValueFrom(this.userService.getPasskeyRegisterOptions());
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.passkeyError.set(
+        httpErr?.error?.error || 'Something went wrong while starting passkey setup.'
+      );
+      this.passkeyLoading.set(false);
+      return;
+    }
+
+    let credential;
+    try {
+      credential = await this.webauthn.createPasskey(optionsRes.options);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Passkey creation was cancelled or is not supported on this device.';
+      this.passkeyError.set(msg);
+      this.passkeyLoading.set(false);
+      return;
+    }
+
+    try {
+      const res = await firstValueFrom(this.userService.verifyPasskeyRegister(credential));
+      this.profile.set(res.user);
+      this.passkeyLoading.set(false);
+      this.successMessage.set('Passkey added successfully.');
+    } catch (err: unknown) {
+      const httpErr = err as { error?: { error?: string } };
+      this.passkeyError.set(
+        httpErr?.error?.error || 'Something went wrong while saving your passkey.'
+      );
+      this.passkeyLoading.set(false);
+    }
+  }
+
+  // Delete an existing passkey from the user's account
+  deletePasskey() {
+    this.passkeyLoading.set(true);
+    this.passkeyError.set(null);
+    this.successMessage.set(null);
+
+    this.userService.deletePasskey().subscribe({
+      next: (res) => {
+        this.profile.set(res.user);
+        this.passkeyLoading.set(false);
+        this.successMessage.set(
+          'Passkey deleted. You can sign in with SMS verification codes or add a new passkey anytime.'
+        );
+      },
+      error: (err) => {
+        const message = err?.error?.error || 'Failed to delete passkey';
+        this.passkeyError.set(message);
+        this.passkeyLoading.set(false);
       },
     });
   }

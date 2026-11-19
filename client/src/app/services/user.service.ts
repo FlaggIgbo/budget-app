@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
+import { PasskeyCreationOptionsJSON, SerializedRegistrationCredential } from './webauthn.service';
 
 export interface UserProfile {
   id: string;
@@ -9,9 +10,11 @@ export interface UserProfile {
   lastName: string;
   phone: string;
   email: string;
+  hasPasskey?: boolean;
+  passkeyCreatedAt?: string | null;
 }
 
-// Feature service for user profile and OTP-verified email/phone updates
+// Feature service for user profile, OTP-verified email/phone updates, and passkey management
 @Injectable({ providedIn: 'root' })
 export class UserService {
   constructor(
@@ -78,6 +81,42 @@ export class UserService {
           }
         })
       );
+  }
+
+  // Fetch WebAuthn creation options to register a passkey on the profile page
+  getPasskeyRegisterOptions(): Observable<{ ok: boolean; options: PasskeyCreationOptionsJSON }> {
+    return this.api.post<{ ok: boolean; options: PasskeyCreationOptionsJSON }>(
+      '/profile/passkey/register/options',
+      {}
+    );
+  }
+
+  // Verify and persist a newly created passkey from navigator.credentials.create()
+  verifyPasskeyRegister(
+    credential: SerializedRegistrationCredential
+  ): Observable<{ ok: boolean; user: UserProfile }> {
+    return this.api
+      .post<{ ok: boolean; user: UserProfile }>('/profile/passkey/register/verify', {
+        credential,
+      })
+      .pipe(
+        tap((res) => {
+          if (res.ok && res.user) {
+            this.auth.updateUser(res.user);
+          }
+        })
+      );
+  }
+
+  // Delete the user's registered passkey
+  deletePasskey(): Observable<{ ok: boolean; user: UserProfile }> {
+    return this.api.delete<{ ok: boolean; user: UserProfile }>('/profile/passkey').pipe(
+      tap((res) => {
+        if (res.ok && res.user) {
+          this.auth.updateUser(res.user);
+        }
+      })
+    );
   }
 
   // Log user out

@@ -18,12 +18,15 @@ export interface ChatContextSummary {
 }
 
 export interface ChatAskResponse {
-  todo: boolean;
-  geminiConfigured: boolean;
-  question: string;
-  reply: string;
-  contextSummary: ChatContextSummary;
-  historyLength: number;
+  todo?: boolean;
+  geminiConfigured?: boolean;
+  question?: string;
+  reply?: string;
+  contextSummary?: ChatContextSummary;
+  historyLength?: number;
+  queued?: boolean;
+  queueId?: number;
+  message?: string;
 }
 
 // ============================================================================
