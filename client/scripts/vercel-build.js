@@ -46,20 +46,22 @@ function resolveAngularBuildConfig() {
   loadDotEnvFile(path.join(rootDir, '.env.local'));
   loadDotEnvFile(path.join(rootDir, '.env'));
 
-  const explicitEnv = (process.env.ENV || process.env.env || '').trim().toLowerCase();
-  if (explicitEnv === 'development' || explicitEnv === 'preview') {
-    return 'development';
-  }
-  if (explicitEnv === 'production') {
+  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
+  // Always enforce Angular production build for Vercel Production deployments
+  if (vercelEnv === 'production' || vercelEnv === 'prod') {
     return 'production';
   }
 
-  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
-  if (vercelEnv === 'development' || vercelEnv === 'preview') {
+  const explicitEnv = (process.env.ENV || process.env.env || '').trim().toLowerCase();
+  if (explicitEnv === 'production' || explicitEnv === 'prod') {
+    return 'production';
+  }
+  if (explicitEnv === 'development' || explicitEnv === 'dev' || explicitEnv === 'preview') {
     return 'development';
   }
-  if (vercelEnv === 'production') {
-    return 'production';
+
+  if (vercelEnv === 'development' || vercelEnv === 'dev' || vercelEnv === 'preview') {
+    return 'development';
   }
 
   // Safe default for unconfigured deployments

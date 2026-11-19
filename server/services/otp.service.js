@@ -28,6 +28,7 @@ function isSandboxMode() {
   const plaidEnv = (process.env.PLAID_ENV || 'sandbox').trim().toLowerCase();
   return (
     explicitEnv === 'development' ||
+    explicitEnv === 'dev' ||
     explicitEnv === 'preview' ||
     nodeEnv === 'development' ||
     plaidEnv === 'sandbox' ||

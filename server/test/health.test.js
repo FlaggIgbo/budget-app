@@ -78,5 +78,16 @@ describe('Health & Config API', () => {
       assert.strictEqual(resVercel.body.environment, 'development');
       assert.strictEqual(resVercel.body.authSandbox?.otp, '123456');
     });
+
+    it('uses production mode and omits authSandbox when env=prod is set', async () => {
+      process.env.NODE_ENV = 'development';
+      process.env.PLAID_ENV = 'sandbox';
+      process.env.env = 'prod';
+
+      const res = await request(app).get('/api/config');
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.environment, 'production');
+      assert.strictEqual(res.body.authSandbox, undefined);
+    });
   });
 });

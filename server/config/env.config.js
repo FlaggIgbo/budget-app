@@ -11,23 +11,23 @@ const ALLOWED_PLAID_ENVS_IN_DEV = ['sandbox', 'development'];
 
 function getAppEnvironment() {
   const explicitEnv = (process.env.ENV || process.env.env || '').trim().toLowerCase();
-  if (explicitEnv === 'production') {
+  if (explicitEnv === 'production' || explicitEnv === 'prod') {
     return 'production';
   }
-  if (explicitEnv === 'development' || explicitEnv === 'preview') {
+  if (explicitEnv === 'development' || explicitEnv === 'dev' || explicitEnv === 'preview') {
     return 'development';
   }
 
   const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
-  if (vercelEnv === 'production') {
+  if (vercelEnv === 'production' || vercelEnv === 'prod') {
     return 'production';
   }
-  if (vercelEnv === 'development' || vercelEnv === 'preview') {
+  if (vercelEnv === 'development' || vercelEnv === 'dev' || vercelEnv === 'preview') {
     return 'development';
   }
 
   const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
-  if (nodeEnv === 'production') {
+  if (nodeEnv === 'production' || nodeEnv === 'prod') {
     return 'production';
   }
   return 'development';
