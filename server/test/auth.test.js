@@ -18,6 +18,9 @@ describe('Auth API (Phone OTP, Signup Flow, Redis 1h Sessions, Profile Changes &
   let fakeRedisStore = new Map();
 
   before(async () => {
+    delete process.env.ENV;
+    delete process.env.env;
+    delete process.env.VERCEL_ENV;
     process.env.NODE_ENV = 'test';
     process.env.PLAID_ENV = 'sandbox';
     app = require('../app');
@@ -67,6 +70,9 @@ describe('Auth API (Phone OTP, Signup Flow, Redis 1h Sessions, Profile Changes &
   });
 
   afterEach(() => {
+    delete process.env.ENV;
+    delete process.env.env;
+    delete process.env.VERCEL_ENV;
     process.env.NODE_ENV = 'test';
     process.env.PLAID_ENV = 'sandbox';
     sentEmails = [];

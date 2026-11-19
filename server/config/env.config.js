@@ -10,7 +10,23 @@
 const ALLOWED_PLAID_ENVS_IN_DEV = ['sandbox', 'development'];
 
 function getAppEnvironment() {
-  const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
+  const explicitEnv = (process.env.ENV || process.env.env || '').trim().toLowerCase();
+  if (explicitEnv === 'production') {
+    return 'production';
+  }
+  if (explicitEnv === 'development' || explicitEnv === 'preview') {
+    return 'development';
+  }
+
+  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
+  if (vercelEnv === 'production') {
+    return 'production';
+  }
+  if (vercelEnv === 'development' || vercelEnv === 'preview') {
+    return 'development';
+  }
+
+  const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
   if (nodeEnv === 'production') {
     return 'production';
   }

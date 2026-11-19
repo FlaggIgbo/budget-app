@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { createClient } = require('redis');
 const db = require('../models');
+const { getAppEnvironment } = require('../config/env.config');
 const emailService = require('./email.service');
 const smsService = require('./sms.service');
 const sessionService = require('./session.service');
@@ -17,12 +18,21 @@ let redisClient = null;
 
 // Check if running in non-production sandbox/development mode (strictly disabled in production)
 function isSandboxMode() {
-  const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
-  if (nodeEnv === 'production') {
+  if (getAppEnvironment() === 'production') {
     return false;
   }
-  const env = (process.env.PLAID_ENV || 'sandbox').toLowerCase();
-  return nodeEnv === 'development' || env === 'sandbox' || env === 'development';
+  const explicitEnv = (process.env.ENV || process.env.env || process.env.VERCEL_ENV || '')
+    .trim()
+    .toLowerCase();
+  const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+  const plaidEnv = (process.env.PLAID_ENV || 'sandbox').trim().toLowerCase();
+  return (
+    explicitEnv === 'development' ||
+    explicitEnv === 'preview' ||
+    nodeEnv === 'development' ||
+    plaidEnv === 'sandbox' ||
+    plaidEnv === 'development'
+  );
 }
 
 // Generate random 6-digit OTP code

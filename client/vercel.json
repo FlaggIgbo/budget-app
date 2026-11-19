@@ -1,4 +1,6 @@
 {
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist/client/browser",
   "rewrites": [
     {
       "source": "/api/:path*",
