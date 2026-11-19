@@ -6,7 +6,7 @@ import { Observable, from, of } from 'rxjs';
 export interface BankConfig {
   plaidConfigured: boolean;
   plaidEnvironment: string;
-  authSandbox?: { email: string; otp: string };
+  authSandbox?: { phone: string; otp: string };
 }
 
 export interface BankEnrollment {

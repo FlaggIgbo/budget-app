@@ -9,6 +9,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-login',
@@ -36,19 +37,23 @@ import { AuthService } from '../../services/auth.service';
           </mat-card-header>
 
           <mat-card-content>
-            @if (sandbox(); as creds) {
+            @if (!isProduction && sandbox(); as creds) {
               <div class="sandbox-banner">
                 <div class="sandbox-header">
-                  <mat-icon>verified</mat-icon>
-                  <strong>Sandbox Test Credentials</strong>
+                  <mat-icon>developer_mode</mat-icon>
+                  <strong>Development Test Account</strong>
+                  <span class="dev-badge">Dev Only</span>
                 </div>
+                <p class="sandbox-note">
+                  No SMS is sent in development mode. Use these test credentials:
+                </p>
                 <div class="sandbox-creds">
                   <div class="cred-chip">
                     <span class="cred-label">Phone:</span>
                     <code>{{ creds.phone }}</code>
                   </div>
                   <div class="cred-chip">
-                    <span class="cred-label">Code:</span>
+                    <span class="cred-label">OTP:</span>
                     <code>{{ creds.otp }}</code>
                   </div>
                 </div>
@@ -216,6 +221,23 @@ import { AuthService } from '../../services/auth.service';
         height: 18px;
         color: #2563eb;
       }
+      .dev-badge {
+        margin-left: auto;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #1d4ed8;
+        background: rgba(37, 99, 235, 0.12);
+        padding: 0.15rem 0.5rem;
+        border-radius: 9999px;
+      }
+      .sandbox-note {
+        margin: 0 0 0.6rem;
+        font-size: 0.8rem;
+        color: #475569;
+        line-height: 1.4;
+      }
       .sandbox-creds {
         display: flex;
         gap: 0.75rem;
@@ -308,6 +330,7 @@ export class LoginComponent implements OnInit {
   loading = signal(false);
   error = signal<string | null>(null);
   sandbox = signal<{ phone: string; otp: string } | null>(null);
+  readonly isProduction = environment.production;
 
   constructor(
     private auth: AuthService,
@@ -315,14 +338,16 @@ export class LoginComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    // Check if server provides sandbox test credentials
-    this.auth.getAuthConfig().subscribe({
-      next: (cfg) => {
-        if (cfg.authSandbox) {
-          this.sandbox.set(cfg.authSandbox);
-        }
-      },
-    });
+    // Only display development test account credentials outside production
+    if (!this.isProduction) {
+      this.auth.getAuthConfig().subscribe({
+        next: (cfg) => {
+          if (cfg.environment !== 'production' && cfg.authSandbox) {
+            this.sandbox.set(cfg.authSandbox);
+          }
+        },
+      });
+    }
   }
 
   // Send SMS verification code
@@ -343,15 +368,19 @@ export class LoginComponent implements OnInit {
     });
   }
 
-  // Verify SMS code and navigate to dashboard
+  // Verify SMS code: navigate to home page if account exists, or to sign up page if new user
   verifyOtp() {
     this.error.set(null);
     this.loading.set(true);
 
     this.auth.verifyOtp(this.phone, this.otp).subscribe({
-      next: () => {
+      next: (res) => {
         this.loading.set(false);
-        this.router.navigate(['/dashboard']);
+        if (res.requiresSignup) {
+          this.router.navigate(['/signup']);
+        } else {
+          this.router.navigate(['/dashboard']);
+        }
       },
       error: (err) => {
         const message = err?.error?.error || 'Invalid code';
@@ -360,4 +389,7 @@ export class LoginComponent implements OnInit {
       },
     });
   }
+
+  // TODO: Add username/password login form mode calling `auth.loginWithPassword(...)`
+  // if migrating away from phone OTP authentication in the future.
 }

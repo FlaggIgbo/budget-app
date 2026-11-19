@@ -58,7 +58,7 @@ export type Profile = UserProfile;
         <div class="header-text">
           <h1>Profile</h1>
           <p class="subtitle">
-            Manage your credentials, phone authentication, and linked notification email
+            View your account details and update your verified phone number or email address
           </p>
         </div>
       </header>
@@ -70,7 +70,7 @@ export type Profile = UserProfile;
               <mat-icon>person</mat-icon>
             </div>
             <div class="user-meta">
-              <h2>Account Credentials</h2>
+              <h2>{{ p.firstName }} {{ p.lastName }}</h2>
               <span class="user-status-pill">Active Session</span>
             </div>
           </div>
@@ -83,10 +83,20 @@ export type Profile = UserProfile;
               <div class="info-body">
                 <div class="info-label-group">
                   <span class="info-label">Phone Number</span>
-                  <span class="verified-tag"><mat-icon>verified</mat-icon> Login method</span>
+                  <span class="verified-tag"><mat-icon>verified</mat-icon> Verified</span>
                 </div>
                 <span class="info-value">{{ p.phone }}</span>
               </div>
+              @if (editingContact() !== 'phone') {
+                <button
+                  mat-stroked-button
+                  class="btn-edit-contact btn-edit-phone"
+                  (click)="startContactChange('phone')"
+                >
+                  <mat-icon>edit</mat-icon>
+                  Change
+                </button>
+              }
             </div>
 
             <div class="divider"></div>
@@ -98,86 +108,125 @@ export type Profile = UserProfile;
               <div class="info-body">
                 <div class="info-label-group">
                   <span class="info-label">Email Address</span>
-                  @if (p.email) {
-                    <span class="verified-tag"><mat-icon>verified</mat-icon> Verified</span>
-                  } @else {
-                    <span class="unverified-tag">Not linked</span>
-                  }
+                  <span class="verified-tag"><mat-icon>verified</mat-icon> Verified</span>
                 </div>
-                <span class="info-value" [class.empty-val]="!p.email">
-                  {{ p.email || 'No email linked — add one to receive personal finance digests' }}
-                </span>
+                <span class="info-value">{{ p.email }}</span>
               </div>
-              @if (!linkingEmail()) {
-                <button mat-stroked-button class="btn-edit-email" (click)="startEmailLinking()">
-                  <mat-icon>{{ p.email ? 'edit' : 'add' }}</mat-icon>
-                  {{ p.email ? 'Update' : 'Add email' }}
+              @if (editingContact() !== 'email') {
+                <button
+                  mat-stroked-button
+                  class="btn-edit-contact btn-edit-email"
+                  (click)="startContactChange('email')"
+                >
+                  <mat-icon>edit</mat-icon>
+                  Change
                 </button>
               }
             </div>
           </mat-card-content>
         </mat-card>
 
-        @if (linkingEmail()) {
+        @if (editingContact(); as target) {
           <mat-card appearance="outlined" class="link-card">
             <mat-card-header class="link-header">
               <div class="link-icon-wrap">
-                <mat-icon>{{ linkStep() === 'input' ? 'mail' : 'mark_email_read' }}</mat-icon>
+                <mat-icon>
+                  {{
+                    editStep() === 'input'
+                      ? target === 'email'
+                        ? 'mail'
+                        : 'phone'
+                      : target === 'email'
+                        ? 'mark_email_read'
+                        : 'sms'
+                  }}
+                </mat-icon>
               </div>
               <div>
                 <mat-card-title>
                   <h2>
-                    {{ linkStep() === 'input' ? 'Link Email Address' : 'Enter Verification Code' }}
+                    @if (editStep() === 'input') {
+                      {{ target === 'email' ? 'Change Email Address' : 'Change Phone Number' }}
+                    } @else {
+                      {{ target === 'email' ? 'Verify New Email' : 'Verify New Phone Number' }}
+                    }
                   </h2>
                 </mat-card-title>
                 <mat-card-subtitle class="subtitle">
-                  {{
-                    linkStep() === 'input'
-                      ? 'We will send a 6-digit confirmation code to verify your address.'
-                      : 'Check your inbox for the 6-digit code and enter it below.'
-                  }}
+                  @if (editStep() === 'input') {
+                    {{
+                      target === 'email'
+                        ? 'We will send a 6-digit verification code to confirm your new email address.'
+                        : 'We will send a 6-digit SMS code to confirm your new phone number.'
+                    }}
+                  } @else {
+                    {{
+                      target === 'email'
+                        ? 'Enter the 6-digit code sent to ' + newEmail
+                        : 'Enter the 6-digit SMS code sent to ' + newPhone
+                    }}
+                  }
                 </mat-card-subtitle>
               </div>
             </mat-card-header>
 
             <mat-card-content class="link-body">
-              @if (linkStep() === 'input') {
-                <form (ngSubmit)="sendEmailOtp()" class="link-form">
-                  <mat-form-field appearance="outline" class="form-field-full">
-                    <mat-label>Email address</mat-label>
-                    <mat-icon matPrefix>mail</mat-icon>
-                    <input
-                      matInput
-                      type="email"
-                      [(ngModel)]="newEmail"
-                      name="newEmail"
-                      placeholder="you@example.com"
-                      required
-                    />
-                  </mat-form-field>
+              @if (editStep() === 'input') {
+                <form (ngSubmit)="sendContactOtp()" class="link-form">
+                  @if (target === 'email') {
+                    <mat-form-field appearance="outline" class="form-field-full">
+                      <mat-label>New email address</mat-label>
+                      <mat-icon matPrefix>mail</mat-icon>
+                      <input
+                        matInput
+                        type="email"
+                        [(ngModel)]="newEmail"
+                        name="newEmail"
+                        placeholder="new-email@example.com"
+                        required
+                      />
+                    </mat-form-field>
+                  } @else {
+                    <mat-form-field appearance="outline" class="form-field-full">
+                      <mat-label>New phone number</mat-label>
+                      <mat-icon matPrefix>phone</mat-icon>
+                      <input
+                        matInput
+                        type="tel"
+                        [(ngModel)]="newPhone"
+                        name="newPhone"
+                        placeholder="+15559876543"
+                        autocomplete="tel"
+                        inputmode="tel"
+                        required
+                      />
+                    </mat-form-field>
+                  }
 
                   <div class="link-actions">
                     <button
                       mat-flat-button
                       class="btn-primary"
                       type="submit"
-                      [disabled]="linkLoading() || !newEmail.trim()"
+                      [disabled]="
+                        editLoading() || (target === 'email' ? !newEmail.trim() : !newPhone.trim())
+                      "
                     >
                       <mat-icon>send</mat-icon>
-                      {{ linkLoading() ? 'Sending…' : 'Send verification code' }}
+                      {{ editLoading() ? 'Sending…' : 'Send verification code' }}
                     </button>
                     <button
                       mat-button
                       type="button"
                       class="btn-cancel"
-                      (click)="cancelEmailLinking()"
+                      (click)="cancelContactChange()"
                     >
                       Cancel
                     </button>
                   </div>
                 </form>
               } @else {
-                <form (ngSubmit)="verifyEmailOtp()" class="link-form">
+                <form (ngSubmit)="verifyContactOtp()" class="link-form">
                   <mat-form-field appearance="outline" class="form-field-full">
                     <mat-label>6-digit verification code</mat-label>
                     <mat-icon matPrefix>lock</mat-icon>
@@ -185,10 +234,11 @@ export type Profile = UserProfile;
                       matInput
                       type="text"
                       class="otp-input"
-                      [(ngModel)]="emailOtpCode"
-                      name="emailOtpCode"
+                      [(ngModel)]="contactOtpCode"
+                      name="contactOtpCode"
                       placeholder="123456"
                       maxlength="6"
+                      autocomplete="one-time-code"
                       required
                     />
                   </mat-form-field>
@@ -198,17 +248,17 @@ export type Profile = UserProfile;
                       mat-flat-button
                       class="btn-primary"
                       type="submit"
-                      [disabled]="linkLoading() || !emailOtpCode.trim()"
+                      [disabled]="editLoading() || !contactOtpCode.trim()"
                     >
                       <mat-icon>check_circle</mat-icon>
-                      {{ linkLoading() ? 'Verifying…' : 'Verify & save' }}
+                      {{ editLoading() ? 'Verifying…' : 'Verify & save' }}
                     </button>
-                    <button mat-button type="button" (click)="linkStep.set('input')">Back</button>
+                    <button mat-button type="button" (click)="editStep.set('input')">Back</button>
                     <button
                       mat-button
                       type="button"
                       class="btn-cancel"
-                      (click)="cancelEmailLinking()"
+                      (click)="cancelContactChange()"
                     >
                       Cancel
                     </button>
@@ -216,10 +266,10 @@ export type Profile = UserProfile;
                 </form>
               }
 
-              @if (linkError(); as lErr) {
+              @if (editError(); as cErr) {
                 <div class="error-banner">
                   <mat-icon>error_outline</mat-icon>
-                  <span>{{ lErr }}</span>
+                  <span>{{ cErr }}</span>
                 </div>
               }
             </mat-card-content>
@@ -436,22 +486,12 @@ export type Profile = UserProfile;
         width: 14px;
         height: 14px;
       }
-      .unverified-tag {
-        font-size: 0.75rem;
-        color: #d97706;
-        font-weight: 500;
-      }
       .info-value {
         font-size: 1rem;
         font-weight: 600;
         color: #0f172a;
       }
-      .info-value.empty-val {
-        font-weight: 400;
-        color: #94a3b8;
-        font-size: 0.9rem;
-      }
-      .btn-edit-email {
+      .btn-edit-contact {
         border-color: #cbd5e1 !important;
         color: #2563eb !important;
         font-weight: 600;
@@ -579,83 +619,106 @@ export class ProfileComponent implements OnInit {
   profile = signal<Profile | null>(null);
   error = signal<string | null>(null);
 
-  linkingEmail = signal(false);
-  linkStep = signal<'input' | 'otp'>('input');
-  linkLoading = signal(false);
-  linkError = signal<string | null>(null);
+  editingContact = signal<'email' | 'phone' | null>(null);
+  editStep = signal<'input' | 'otp'>('input');
+  editLoading = signal(false);
+  editError = signal<string | null>(null);
   successMessage = signal<string | null>(null);
 
   newEmail = '';
-  emailOtpCode = '';
+  newPhone = '';
+  contactOtpCode = '';
 
   constructor(private userService: UserService) {}
 
   ngOnInit() {
-    // Load profile from UserService
     this.userService.getProfile().subscribe({
       next: (data) => this.profile.set(data),
       error: () => this.error.set('Failed to load profile'),
     });
   }
 
-  // Open the form to link or update the user's email address
-  startEmailLinking() {
-    this.linkingEmail.set(true);
-    this.linkStep.set('input');
+  // Open the form to change either email address or phone number
+  startContactChange(target: 'email' | 'phone') {
+    this.editingContact.set(target);
+    this.editStep.set('input');
     this.newEmail = '';
-    this.emailOtpCode = '';
-    this.linkError.set(null);
+    this.newPhone = '';
+    this.contactOtpCode = '';
+    this.editError.set(null);
     this.successMessage.set(null);
   }
 
-  // Cancel the email linking flow
-  cancelEmailLinking() {
-    this.linkingEmail.set(false);
-    this.linkError.set(null);
+  // Cancel the active contact change flow
+  cancelContactChange() {
+    this.editingContact.set(null);
+    this.editError.set(null);
   }
 
-  // Step 1: Request 6-digit OTP for the new email address
-  sendEmailOtp() {
-    if (!this.newEmail.trim()) {
+  // Step 1: Request 6-digit OTP for the new email address or phone number
+  sendContactOtp() {
+    const target = this.editingContact();
+    if (!target) {
       return;
     }
 
-    this.linkLoading.set(true);
-    this.linkError.set(null);
+    const value = target === 'email' ? this.newEmail.trim() : this.newPhone.trim();
+    if (!value) {
+      return;
+    }
 
-    this.userService.requestEmailOtp(this.newEmail.trim()).subscribe({
+    this.editLoading.set(true);
+    this.editError.set(null);
+
+    const request$ =
+      target === 'email'
+        ? this.userService.requestEmailChangeOtp(value)
+        : this.userService.requestPhoneChangeOtp(value);
+
+    request$.subscribe({
       next: () => {
-        this.linkStep.set('otp');
-        this.linkLoading.set(false);
+        this.editStep.set('otp');
+        this.editLoading.set(false);
       },
       error: (err) => {
         const message = err?.error?.error || 'Failed to send verification code';
-        this.linkError.set(message);
-        this.linkLoading.set(false);
+        this.editError.set(message);
+        this.editLoading.set(false);
       },
     });
   }
 
-  // Step 2: Verify OTP and upsert the email into the user's profile DB record
-  verifyEmailOtp() {
-    if (!this.emailOtpCode.trim()) {
+  // Step 2: Verify OTP and update email address or phone number in DB
+  verifyContactOtp() {
+    const target = this.editingContact();
+    if (!target || !this.contactOtpCode.trim()) {
       return;
     }
 
-    this.linkLoading.set(true);
-    this.linkError.set(null);
+    const value = target === 'email' ? this.newEmail.trim() : this.newPhone.trim();
+    this.editLoading.set(true);
+    this.editError.set(null);
 
-    this.userService.verifyEmailOtp(this.newEmail.trim(), this.emailOtpCode.trim()).subscribe({
+    const verify$ =
+      target === 'email'
+        ? this.userService.verifyEmailChangeOtp(value, this.contactOtpCode.trim())
+        : this.userService.verifyPhoneChangeOtp(value, this.contactOtpCode.trim());
+
+    verify$.subscribe({
       next: (res) => {
         this.profile.set(res.user);
-        this.linkingEmail.set(false);
-        this.linkLoading.set(false);
-        this.successMessage.set('Email address verified and saved to your profile.');
+        this.editingContact.set(null);
+        this.editLoading.set(false);
+        this.successMessage.set(
+          target === 'email'
+            ? 'Email address verified and updated.'
+            : 'Phone number verified and updated.'
+        );
       },
       error: (err) => {
         const message = err?.error?.error || 'Invalid verification code';
-        this.linkError.set(message);
-        this.linkLoading.set(false);
+        this.editError.set(message);
+        this.editLoading.set(false);
       },
     });
   }

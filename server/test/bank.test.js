@@ -18,7 +18,12 @@ describe('Bank Service, RabbitMQ Queue, Statement Storage & LLM Assistant', () =
     bankAdapter.deleteEnrollment = async () => true;
     db = require('../models');
     await db.sequelize.sync({ force: true });
-    testUser = await db.User.create({ phone: '+15550001111', email: 'bankuser@example.com' });
+    testUser = await db.User.create({
+      firstName: 'Bank',
+      lastName: 'Tester',
+      phone: '+15550001111',
+      email: 'bankuser@example.com',
+    });
   });
 
   it('encrypts and decrypts bank access tokens at rest in Secrets Vault', () => {

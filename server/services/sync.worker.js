@@ -1,6 +1,9 @@
 const db = require('../models');
 const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
+const { getEnvConfig } = require('../config/env.config');
+
+const DEV_SEED_TOKEN_PREFIX = 'dev-seed-';
 
 // ============================================================================
 // SYNC WORKER
@@ -58,6 +61,28 @@ async function fetchItemTransactionsWithCursor(accessToken, initialCursor) {
 async function syncEnrollmentData(enrollment, userId) {
   // Step 1: Decrypt the access_token from the Secrets Vault
   const accessToken = secretsVault.decryptToken(enrollment.accessToken);
+
+  // In non-production environments, return locally seeded accounts for development seed enrollments
+  // without making live Plaid API calls
+  if (
+    !getEnvConfig().isProduction &&
+    typeof accessToken === 'string' &&
+    accessToken.startsWith(DEV_SEED_TOKEN_PREFIX)
+  ) {
+    const seededAccounts = await db.Account.findAll({
+      where: { enrollmentId: enrollment.enrollmentId, userId },
+      order: [['createdAt', 'ASC']],
+    });
+    return seededAccounts.map((acct) => ({
+      id: acct.accountId,
+      name: acct.name,
+      last_four: acct.lastFour,
+      type: acct.type,
+      subtype: acct.subtype,
+      institution: { name: acct.institutionName || enrollment.institutionName || 'Bank' },
+      balances: { current: parseFloat(acct.balance) || 0 },
+    }));
+  }
 
   // Step 2: Fetch the user's accounts (and balances) from Plaid (/accounts/get)
   const plaidAccounts = await bankAdapter.getAccounts(accessToken);

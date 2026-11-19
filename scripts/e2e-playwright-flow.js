@@ -80,8 +80,20 @@ function startStaticSpaServer() {
 
 // Configure stateful API routes for local E2E flow verification
 async function setupStatefulE2EMocks(page) {
-  let isLoggedIn = false;
-  let linkedEmail = null;
+  let currentUser = null;
+  const accountsByPhone = new Map([
+    [
+      '+15551234567',
+      {
+        id: 'usr_1',
+        firstName: 'Alex',
+        lastName: 'Demo',
+        phone: '+15551234567',
+        email: 'alex@budgetapp.local',
+      },
+    ],
+  ]);
+  const pendingSignups = new Map();
   const enrollments = [
     {
       id: '1',
@@ -149,6 +161,7 @@ async function setupStatefulE2EMocks(page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          environment: 'development',
           plaidConfigured: true,
           plaidEnvironment: 'sandbox',
           authSandbox: { phone: '+15551234567', otp: '123456' },
@@ -157,7 +170,7 @@ async function setupStatefulE2EMocks(page) {
     }
 
     if (pathname.endsWith('/api/auth/me')) {
-      if (!isLoggedIn) {
+      if (!currentUser) {
         return route.fulfill({
           status: 401,
           contentType: 'application/json',
@@ -168,7 +181,7 @@ async function setupStatefulE2EMocks(page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          user: { id: 'usr_1', phone: '+15551234567', email: linkedEmail },
+          user: { ...currentUser },
         }),
       });
     }
@@ -183,13 +196,30 @@ async function setupStatefulE2EMocks(page) {
 
     if (pathname.endsWith('/api/otp/verify')) {
       if (body.code === '123456') {
-        isLoggedIn = true;
+        const phone = (body.phone || '').trim();
+        const existing = accountsByPhone.get(phone);
+        if (!existing) {
+          const signupToken = `tok_e2e_${Date.now()}`;
+          pendingSignups.set(signupToken, phone);
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: true,
+              requiresSignup: true,
+              phone,
+              signupToken,
+            }),
+          });
+        }
+        currentUser = existing;
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ok: true,
-            user: { id: 'usr_1', phone: '+15551234567', email: linkedEmail },
+            requiresSignup: false,
+            user: { ...currentUser },
           }),
         });
       }
@@ -200,8 +230,56 @@ async function setupStatefulE2EMocks(page) {
       });
     }
 
+    if (pathname.endsWith('/api/auth/signup/request-email-otp')) {
+      if (!pendingSignups.has(body.signupToken)) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Signup session expired' }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, message: 'Verification code sent' }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/complete')) {
+      const phone = pendingSignups.get(body.signupToken);
+      if (!phone) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Signup session expired' }),
+        });
+      }
+      if (body.code === '123456') {
+        const newUser = {
+          id: `usr_${accountsByPhone.size + 1}`,
+          firstName: (body.firstName || '').trim(),
+          lastName: (body.lastName || '').trim(),
+          phone,
+          email: (body.email || '').trim().toLowerCase(),
+        };
+        accountsByPhone.set(phone, newUser);
+        pendingSignups.delete(body.signupToken);
+        currentUser = newUser;
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, user: { ...currentUser } }),
+        });
+      }
+      return route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Invalid or expired OTP' }),
+      });
+    }
+
     if (pathname.endsWith('/api/auth/logout')) {
-      isLoggedIn = false;
+      currentUser = null;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -374,14 +452,17 @@ async function setupStatefulE2EMocks(page) {
     }
 
     if (pathname.endsWith('/api/profile')) {
+      if (!currentUser) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Not authenticated' }),
+        });
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'usr_1',
-          phone: '+15551234567',
-          email: linkedEmail,
-        }),
+        body: JSON.stringify({ ...currentUser }),
       });
     }
 
@@ -394,14 +475,20 @@ async function setupStatefulE2EMocks(page) {
     }
 
     if (pathname.endsWith('/api/profile/contact/verify-otp')) {
-      if (body.code === '123456') {
-        linkedEmail = body.email;
+      if (body.code === '123456' && currentUser) {
+        if (body.type === 'phone' || body.phone) {
+          accountsByPhone.delete(currentUser.phone);
+          currentUser.phone = body.phone;
+          accountsByPhone.set(currentUser.phone, currentUser);
+        } else if (body.email) {
+          currentUser.email = body.email;
+        }
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ok: true,
-            user: { id: 'usr_1', phone: '+15551234567', email: linkedEmail },
+            user: { ...currentUser },
           }),
         });
       }
@@ -501,9 +588,9 @@ async function main() {
 
   try {
     // -------------------------------------------------------------
-    // TEST SUITE 1: Phone OTP Login Flow
+    // TEST SUITE 1: New User Phone OTP -> Sign Up Page -> Email OTP -> /dashboard
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 1] Phone OTP Login Flow ---');
+    console.log('\n--- [TEST 1] New User Phone OTP -> Sign Up Flow (Email OTP) ---');
     await page.goto(`${webUrl}/login`, { waitUntil: 'networkidle' });
     await sleep(400);
 
@@ -512,19 +599,71 @@ async function main() {
       throw new Error(`Expected heading "Budget App", got: ${loginHeading}`);
     }
 
+    const devBannerText = await page.textContent('.sandbox-banner');
+    if (!devBannerText?.includes('+15551234567') || !devBannerText?.includes('123456')) {
+      throw new Error('Expected Development Test Account banner with +15551234567 and 123456');
+    }
+    console.log('   ✓ Development Test Account banner displayed');
+
+    // Enter a brand-new phone number that does not have an account yet
+    await page.fill('#phone', '+15559990001');
+    await page.click('button[type="submit"]');
+    await page.waitForSelector('#otp');
+
+    await page.fill('#otp', '123456');
+    await page.click('button[type="submit"]');
+    await page.waitForURL('**/signup');
+    await page.waitForSelector('#firstName');
+
+    const verifiedPhoneBanner = await page.textContent('.verified-phone-banner');
+    if (!verifiedPhoneBanner?.includes('+15559990001')) {
+      throw new Error('Expected verified phone +15559990001 on signup page');
+    }
+    console.log('   ✓ Unregistered phone redirected to /signup');
+
+    // Fill first name, last name, and email, then request email OTP
+    await page.fill('#firstName', 'Jordan');
+    await page.fill('#lastName', 'Lee');
+    await page.fill('#email', 'jordan@example.com');
+    await page.click('button[type="submit"]');
+    await page.waitForSelector('#emailOtp');
+
+    // Verify invalid email OTP is rejected before creating account
+    await page.fill('#emailOtp', '000000');
+    await page.click('button[type="submit"]');
+    await page.waitForSelector('.signup .error-banner');
+    console.log('   ✓ Invalid signup email OTP rejected');
+
+    // Complete signup with valid email OTP -> redirected to /dashboard
+    await page.fill('#emailOtp', '123456');
+    await page.click('button[type="submit"]');
+    await page.waitForURL('**/dashboard');
+    await page.waitForSelector('.net-worth-card');
+    console.log('   ✅ New user created via /signup email OTP and redirected to /dashboard');
+
+    // Log out to test existing account login
+    await page.click('.btn-logout');
+    await page.waitForURL('**/login');
+    await page.waitForSelector('#phone');
+
+    // -------------------------------------------------------------
+    // TEST SUITE 2: Existing Account Phone OTP Login -> Directly to /dashboard
+    // -------------------------------------------------------------
+    console.log('\n--- [TEST 2] Existing Account Phone OTP Login -> /dashboard ---');
     await page.fill('#phone', '+15551234567');
     await page.click('button[type="submit"]');
     await page.waitForSelector('#otp');
 
     await page.fill('#otp', '123456');
     await page.click('button[type="submit"]');
+    await page.waitForURL('**/dashboard');
     await page.waitForSelector('.net-worth-card');
-    console.log('   ✅ Phone OTP login verified and redirected to /dashboard');
+    console.log('   ✅ Existing account phone OTP login redirected directly to /dashboard');
 
     // -------------------------------------------------------------
-    // TEST SUITE 2: Dashboard Net Worth, Cash Flow, & Quick Stats
+    // TEST SUITE 3: Dashboard Net Worth, Cash Flow, & Quick Stats
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 2] Dashboard Net Worth, Cash Flow, & Quick Stats ---');
+    console.log('\n--- [TEST 3] Dashboard Net Worth, Cash Flow, & Quick Stats ---');
     const netWorthText = await page.textContent('.net-worth-card .amount');
     console.log(`   Net Worth displayed: ${netWorthText?.trim()}`);
     if (!netWorthText?.includes('$14,850.75')) {
@@ -542,9 +681,9 @@ async function main() {
     console.log('   ✅ Dashboard net worth, charts, and transaction sync verified');
 
     // -------------------------------------------------------------
-    // TEST SUITE 3: Bank Accounts (Plaid Institutions)
+    // TEST SUITE 4: Bank Accounts (Plaid Institutions)
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 3] Bank Accounts Page (Plaid Institutions) ---');
+    console.log('\n--- [TEST 4] Bank Accounts Page (Plaid Institutions) ---');
     await page.click('a.link-accounts');
     await page.waitForSelector('.enrollment-card');
 
@@ -556,9 +695,9 @@ async function main() {
     console.log('   ✅ Bank Accounts page verified');
 
     // -------------------------------------------------------------
-    // TEST SUITE 4: Profile Tab & Verified Email Linking (OTP Required)
+    // TEST SUITE 5: Profile Tab — Change Email & Phone Number (OTP Required)
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 4] Profile Tab & Verified Email Linking ---');
+    console.log('\n--- [TEST 5] Profile Tab — Change Email & Phone Number (OTP Required) ---');
     await page.click('a.back-link');
     await page.waitForSelector('a.link-profile');
     await page.click('a.link-profile');
@@ -569,33 +708,58 @@ async function main() {
       throw new Error('Expected phone number +15551234567 on profile');
     }
 
-    await page.click('button:has-text("Add email")');
+    // Change email with OTP verification
+    await page.click('.btn-edit-email');
     await page.waitForSelector('.link-card');
     await page.fill('input[name="newEmail"]', 'alex@example.com');
     await page.click('button:has-text("Send verification code")');
-    await page.waitForSelector('input[name="emailOtpCode"]');
+    await page.waitForSelector('input[name="contactOtpCode"]');
 
-    // Test invalid OTP rejection before DB upsert
-    await page.fill('input[name="emailOtpCode"]', '000000');
+    // Test invalid OTP rejection before DB update
+    await page.fill('input[name="contactOtpCode"]', '000000');
     await page.click('button:has-text("Verify & save")');
     await page.waitForSelector('.link-card .error-banner');
-    console.log('   ✓ Invalid email OTP rejected before DB upsert');
+    console.log('   ✓ Invalid email OTP rejected before DB update');
 
     // Verify with valid OTP
-    await page.fill('input[name="emailOtpCode"]', '123456');
+    await page.fill('input[name="contactOtpCode"]', '123456');
     await page.click('button:has-text("Verify & save")');
     await page.waitForSelector('.success-banner');
 
-    const updatedProfileText = await page.textContent('.profile-card');
-    if (!updatedProfileText?.includes('alex@example.com')) {
+    const updatedEmailText = await page.textContent('.profile-card');
+    if (!updatedEmailText?.includes('alex@example.com')) {
       throw new Error('Expected verified email alex@example.com on profile card');
     }
-    console.log('   ✅ Profile email OTP verification and upsert verified');
+    console.log('   ✅ Profile email OTP change verified');
+
+    // Change phone number with OTP verification
+    await page.click('.btn-edit-phone');
+    await page.waitForSelector('.link-card');
+    await page.fill('input[name="newPhone"]', '+15559876543');
+    await page.click('button:has-text("Send verification code")');
+    await page.waitForSelector('input[name="contactOtpCode"]');
+
+    // Test invalid phone OTP rejection before DB update
+    await page.fill('input[name="contactOtpCode"]', '000000');
+    await page.click('button:has-text("Verify & save")');
+    await page.waitForSelector('.link-card .error-banner');
+    console.log('   ✓ Invalid phone OTP rejected before DB update');
+
+    // Verify with valid phone OTP
+    await page.fill('input[name="contactOtpCode"]', '123456');
+    await page.click('button:has-text("Verify & save")');
+    await page.waitForSelector('.success-banner');
+
+    const updatedPhoneText = await page.textContent('.profile-card');
+    if (!updatedPhoneText?.includes('+15559876543')) {
+      throw new Error('Expected verified phone +15559876543 on profile card');
+    }
+    console.log('   ✅ Profile phone OTP change verified');
 
     // -------------------------------------------------------------
-    // TEST SUITE 5: AI Financial Assistant Chat Page
+    // TEST SUITE 6: AI Financial Assistant Chat Page
     // -------------------------------------------------------------
-    console.log('\n--- [TEST 5] AI Financial Assistant Chat Page ---');
+    console.log('\n--- [TEST 6] AI Financial Assistant Chat Page ---');
     await page.click('a.back-link');
     await page.waitForSelector('a.link-chat');
     await page.click('a.link-chat');

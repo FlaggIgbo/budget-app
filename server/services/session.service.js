@@ -75,18 +75,12 @@ function setClient(customClient) {
   redisClient = customClient;
 }
 
-// Issue a new 1-hour session token in Redis for a verified phone number
+// Issue a new 1-hour session token in Redis for an existing User record
 // and enqueue a prioritized RabbitMQ balance/transaction sync job
-async function issueSession(phoneInput) {
-  const phone = typeof phoneInput === 'string' ? phoneInput : phoneInput?.phone;
-  if (!phone) {
-    throw new Error('Phone number is required to issue a session');
+async function issueSessionForUser(user) {
+  if (!user || !user.id) {
+    throw new Error('Valid user record is required to issue a session');
   }
-
-  const [user] = await db.User.findOrCreate({
-    where: { phone },
-    defaults: { phone },
-  });
 
   const token = generateToken();
   const ttlSeconds = getSessionTtlSeconds();
@@ -109,12 +103,23 @@ async function issueSession(phoneInput) {
   return {
     token,
     ttlSeconds,
-    user: {
-      id: user.id,
-      phone: user.phone,
-      email: user.email || null,
-    },
+    user: db.User.toPublicUser(user),
   };
+}
+
+// Issue a session for an existing user identified by phone number
+async function issueSession(phoneInput) {
+  const phone = typeof phoneInput === 'string' ? phoneInput : phoneInput?.phone;
+  if (!phone) {
+    throw new Error('Phone number is required to issue a session');
+  }
+
+  const user = await db.User.findOne({ where: { phone } });
+  if (!user) {
+    throw new Error('User account does not exist for this phone number');
+  }
+
+  return await issueSessionForUser(user);
 }
 
 // Look up a session token in Redis and verify the user still exists
@@ -142,7 +147,7 @@ async function verifySessionToken(token) {
   }
 
   const user = await db.User.findByPk(parsed.userId, {
-    attributes: ['id', 'phone', 'email'],
+    attributes: ['id', 'firstName', 'lastName', 'phone', 'email'],
   });
 
   if (!user) {
@@ -175,6 +180,7 @@ module.exports = {
   getSessionTtlSeconds,
   getClient,
   setClient,
+  issueSessionForUser,
   issueSession,
   verifySessionToken,
   revokeSession,

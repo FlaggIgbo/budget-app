@@ -68,8 +68,37 @@ function isValidPhone(phone) {
   return /^\+[1-9]\d{6,14}$/.test(normalized);
 }
 
+// Trim a user's first or last name
+function normalizeName(name) {
+  if (!name || typeof name !== 'string') {
+    return '';
+  }
+  return name.trim();
+}
+
+// Validate a non-empty first or last name
+function isValidName(name) {
+  const normalized = normalizeName(name);
+  return normalized.length >= 1 && normalized.length <= 100;
+}
+
+// Return public user fields only (never expose password hash)
+function toPublicUser(user) {
+  if (!user) {
+    return null;
+  }
+  return {
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: user.phone,
+    email: user.email,
+  };
+}
+
 module.exports = (sequelize) => {
-  // User table: phone is the primary login identifier; email is optional on the profile
+  // User table: phone is the primary OTP login identifier; firstName, lastName, and verified email
+  // are collected at signup. The nullable password column is reserved for a future username/password login migration.
   const User = sequelize.define(
     'User',
     {
@@ -78,6 +107,14 @@ module.exports = (sequelize) => {
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
       },
+      firstName: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+      },
+      lastName: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+      },
       phone: {
         type: DataTypes.STRING(32),
         allowNull: false,
@@ -85,8 +122,14 @@ module.exports = (sequelize) => {
       },
       email: {
         type: DataTypes.STRING(255),
-        allowNull: true,
+        allowNull: false,
         unique: true,
+      },
+      password: {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        // TODO: Store a salted password hash (e.g., argon2id or bcrypt) here when migrating
+        // from phone OTP authentication to username/password login. Never store plaintext passwords.
       },
     },
     {
@@ -103,6 +146,9 @@ module.exports = (sequelize) => {
   User.isValidEmail = isValidEmail;
   User.normalizePhone = normalizePhone;
   User.isValidPhone = isValidPhone;
+  User.normalizeName = normalizeName;
+  User.isValidName = isValidName;
+  User.toPublicUser = toPublicUser;
 
   return User;
 };

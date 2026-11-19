@@ -37,13 +37,23 @@ describe('Health & Config API', () => {
       assert.strictEqual(res.body.storageProvider, 'minio');
     });
 
-    it('includes authSandbox in sandbox mode', async () => {
+    it('includes authSandbox in development/sandbox mode', async () => {
+      process.env.NODE_ENV = 'development';
       process.env.PLAID_ENV = 'sandbox';
       const res = await request(app).get('/api/config');
       assert.strictEqual(res.status, 200);
       assert.ok(res.body.authSandbox);
       assert.strictEqual(res.body.authSandbox.phone, '+15551234567');
       assert.strictEqual(res.body.authSandbox.otp, '123456');
+    });
+
+    it('omits authSandbox in production mode even if PLAID_ENV is sandbox', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.PLAID_ENV = 'sandbox';
+      const res = await request(app).get('/api/config');
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.environment, 'production');
+      assert.strictEqual(res.body.authSandbox, undefined);
     });
   });
 });

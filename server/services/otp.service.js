@@ -6,18 +6,23 @@ const smsService = require('./sms.service');
 const sessionService = require('./session.service');
 
 const OTP_PREFIX = 'otp:';
+const SIGNUP_PREFIX = 'signup:';
 const DEFAULT_TTL_SECONDS = 5 * 60; // 5 minutes in seconds
+const SIGNUP_TTL_SECONDS = 15 * 60; // 15 minutes in seconds
 
 const SANDBOX_PHONE = '+15551234567';
 const SANDBOX_OTP = '123456';
 
 let redisClient = null;
 
-// Check if running in sandbox or lower environment
+// Check if running in non-production sandbox/development mode (strictly disabled in production)
 function isSandboxMode() {
-  const env = process.env.PLAID_ENV || 'sandbox';
-  const nodeEnv = process.env.NODE_ENV || 'development';
-  return env === 'sandbox' || nodeEnv === 'development';
+  const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
+  if (nodeEnv === 'production') {
+    return false;
+  }
+  const env = (process.env.PLAID_ENV || 'sandbox').toLowerCase();
+  return nodeEnv === 'development' || env === 'sandbox' || env === 'development';
 }
 
 // Generate random 6-digit OTP code
@@ -25,9 +30,22 @@ function generateCode() {
   return crypto.randomInt(100000, 1000000).toString();
 }
 
-// Build Redis key for a phone number or email address: otp:{identifier}
-function getOtpKey(identifier) {
+// Generate random opaque token for pending phone-verified signup sessions
+function generateSignupToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Build Redis key for a phone number or email address: otp:{identifier} or otp:{scope}:{identifier}
+function getOtpKey(identifier, scope = null) {
+  if (scope) {
+    return `${OTP_PREFIX}${scope}:${identifier}`;
+  }
   return OTP_PREFIX + identifier;
+}
+
+// Build Redis key for a pending signup session: signup:{token}
+function getSignupKey(token) {
+  return SIGNUP_PREFIX + token;
 }
 
 // Get or connect to Redis client
@@ -54,27 +72,62 @@ function setClient(customClient) {
 }
 
 // SET code in Redis with automatic expiration (otp:{identifier} TTL)
-async function saveOtp(identifier, code, ttlSeconds = DEFAULT_TTL_SECONDS) {
+async function saveOtp(identifier, code, ttlSeconds = DEFAULT_TTL_SECONDS, scope = null) {
   const client = await getClient();
-  const key = getOtpKey(identifier);
+  const key = getOtpKey(identifier, scope);
   await client.set(key, code, { EX: ttlSeconds });
 }
 
 // GET stored OTP code for an identifier from Redis
-async function getOtp(identifier) {
+async function getOtp(identifier, scope = null) {
   const client = await getClient();
-  const key = getOtpKey(identifier);
+  const key = getOtpKey(identifier, scope);
   return await client.get(key);
 }
 
 // DEL OTP code for an identifier from Redis
-async function deleteOtp(identifier) {
+async function deleteOtp(identifier, scope = null) {
   const client = await getClient();
-  const key = getOtpKey(identifier);
+  const key = getOtpKey(identifier, scope);
   await client.del(key);
 }
 
-// Extract and validate a phone number for login / signup
+// Store a short-lived pending signup token proving phone OTP ownership
+async function createPendingSignup(phone, ttlSeconds = SIGNUP_TTL_SECONDS) {
+  const token = generateSignupToken();
+  const client = await getClient();
+  await client.set(getSignupKey(token), JSON.stringify({ phone }), { EX: ttlSeconds });
+  return token;
+}
+
+// Retrieve pending signup data from Redis by token
+async function getPendingSignup(token) {
+  if (!token || typeof token !== 'string') {
+    return null;
+  }
+  const client = await getClient();
+  const raw = await client.get(getSignupKey(token.trim()));
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.phone ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// Delete a pending signup token from Redis
+async function deletePendingSignup(token) {
+  if (!token || typeof token !== 'string') {
+    return;
+  }
+  const client = await getClient();
+  await client.del(getSignupKey(token.trim()));
+}
+
+// Extract and validate a phone number
 function parsePhoneInput(input) {
   const rawPhone = typeof input === 'string' ? input : input?.phone || '';
   const phone = db.User.normalizePhone(rawPhone);
@@ -84,7 +137,7 @@ function parsePhoneInput(input) {
   return { phone };
 }
 
-// Extract and validate an email address for profile linking
+// Extract and validate an email address
 function parseEmailInput(input) {
   const rawEmail = typeof input === 'string' ? input : input?.email || '';
   const email = db.User.normalizeEmail(rawEmail);
@@ -101,7 +154,7 @@ async function requestOtp(input) {
     return parsed;
   }
 
-  // In sandbox/lower environments, use dummy credentials without sending real SMS
+  // In sandbox/lower environments, use dummy code without sending real SMS
   if (isSandboxMode()) {
     return { ok: true, message: 'OTP sent (sandbox: use 123456)' };
   }
@@ -113,7 +166,9 @@ async function requestOtp(input) {
   return { ok: true, message: 'OTP sent' };
 }
 
-// Verify login/signup phone OTP: GET/compare code from Redis, DEL on match, and issue session
+// Verify login/signup phone OTP:
+// - If an account exists for this phone number, issue a session and return requiresSignup: false.
+// - If no account exists yet, issue a pending signup token and return requiresSignup: true.
 async function verifyOtp(input, rawCode) {
   const parsed = parsePhoneInput(input);
   if (parsed.error) {
@@ -125,39 +180,64 @@ async function verifyOtp(input, rawCode) {
     return { error: 'OTP required', status: 400 };
   }
 
-  // Sandbox check: allow dummy phone +15551234567 with code 123456
-  if (isSandboxMode()) {
-    if (parsed.phone === SANDBOX_PHONE && code === SANDBOX_OTP) {
-      const sessionData = await sessionService.issueSession(parsed.phone);
-      return { ok: true, ...sessionData };
+  let verified = false;
+  if (isSandboxMode() && code === SANDBOX_OTP) {
+    verified = true;
+  } else {
+    const storedCode = await getOtp(parsed.phone);
+    if (storedCode && storedCode === code) {
+      await deleteOtp(parsed.phone);
+      verified = true;
     }
   }
 
-  // Compare code against Redis (GET) and delete upon match (DEL)
-  const storedCode = await getOtp(parsed.phone);
-  if (!storedCode || storedCode !== code) {
+  if (!verified) {
     return { error: 'Invalid or expired OTP', status: 401 };
   }
 
-  await deleteOtp(parsed.phone);
-  const sessionData = await sessionService.issueSession(parsed.phone);
-  return { ok: true, ...sessionData };
-}
-
-// Request OTP to verify and link an email address to a logged-in user's profile
-async function requestContactOtp(userId, input) {
-  if (!userId) {
-    return { error: 'Not authenticated', status: 401 };
+  const existingUser = await db.User.findOne({ where: { phone: parsed.phone } });
+  if (existingUser) {
+    const sessionData = await sessionService.issueSessionForUser(existingUser);
+    return {
+      ok: true,
+      requiresSignup: false,
+      ...sessionData,
+    };
   }
 
-  const parsed = parseEmailInput(input);
+  // No account exists for this phone number yet; require signup with name + verified email
+  const signupToken = await createPendingSignup(parsed.phone);
+  return {
+    ok: true,
+    requiresSignup: true,
+    phone: parsed.phone,
+    signupToken,
+  };
+}
+
+// Request a 6-digit email OTP during new-account signup to confirm ownership of the email address
+async function requestSignupEmailOtp(signupToken, emailInput) {
+  const pending = await getPendingSignup(signupToken);
+  if (!pending) {
+    return {
+      error: 'Signup session expired. Please verify your phone number again.',
+      status: 401,
+    };
+  }
+
+  const existingPhoneUser = await db.User.findOne({ where: { phone: pending.phone } });
+  if (existingPhoneUser) {
+    await deletePendingSignup(signupToken);
+    return { error: 'An account already exists for this phone number', status: 409 };
+  }
+
+  const parsed = parseEmailInput(emailInput);
   if (parsed.error) {
     return parsed;
   }
 
-  // Ensure the email is not already linked to a different user
-  const existingUser = await db.User.findOne({ where: { email: parsed.email } });
-  if (existingUser && existingUser.id !== userId) {
+  const existingEmailUser = await db.User.findOne({ where: { email: parsed.email } });
+  if (existingEmailUser) {
     return { error: 'Email address is already associated with another account', status: 409 };
   }
 
@@ -166,19 +246,175 @@ async function requestContactOtp(userId, input) {
   }
 
   const code = generateCode();
-  await saveOtp(parsed.email, code);
+  await saveOtp(parsed.email, code, DEFAULT_TTL_SECONDS, 'signup');
   await emailService.sendOtpEmail(parsed.email, code);
 
   return { ok: true, message: 'Verification code sent' };
 }
 
-// Verify email OTP and upsert the verified email onto the logged-in user's profile in PostgreSQL
+// Verify email OTP during signup, create the User in PostgreSQL, and issue a 1-hour Redis session
+async function completeSignup({ signupToken, firstName, lastName, email, code: rawCode }) {
+  const pending = await getPendingSignup(signupToken);
+  if (!pending) {
+    return {
+      error: 'Signup session expired. Please verify your phone number again.',
+      status: 401,
+    };
+  }
+
+  const cleanFirstName = db.User.normalizeName(firstName);
+  if (!db.User.isValidName(cleanFirstName)) {
+    return { error: 'First name is required', status: 400 };
+  }
+
+  const cleanLastName = db.User.normalizeName(lastName);
+  if (!db.User.isValidName(cleanLastName)) {
+    return { error: 'Last name is required', status: 400 };
+  }
+
+  const parsedEmail = parseEmailInput(email);
+  if (parsedEmail.error) {
+    return parsedEmail;
+  }
+
+  const code = typeof rawCode === 'string' ? rawCode.trim() : '';
+  if (!code) {
+    return { error: 'OTP required', status: 400 };
+  }
+
+  const existingPhoneUser = await db.User.findOne({ where: { phone: pending.phone } });
+  if (existingPhoneUser) {
+    await deletePendingSignup(signupToken);
+    return { error: 'An account already exists for this phone number', status: 409 };
+  }
+
+  const existingEmailUser = await db.User.findOne({ where: { email: parsedEmail.email } });
+  if (existingEmailUser) {
+    return { error: 'Email address is already associated with another account', status: 409 };
+  }
+
+  let verified = false;
+  if (isSandboxMode() && code === SANDBOX_OTP) {
+    verified = true;
+  } else {
+    const storedCode = await getOtp(parsedEmail.email, 'signup');
+    if (storedCode && storedCode === code) {
+      await deleteOtp(parsedEmail.email, 'signup');
+      verified = true;
+    }
+  }
+
+  if (!verified) {
+    return { error: 'Invalid or expired OTP', status: 401 };
+  }
+
+  // Create the new user in PostgreSQL (password column remains null until password login is implemented)
+  const user = await db.User.create({
+    firstName: cleanFirstName,
+    lastName: cleanLastName,
+    phone: pending.phone,
+    email: parsedEmail.email,
+    password: null, // TODO: Hash and store password here if switching to username/password signup
+  });
+
+  await deletePendingSignup(signupToken);
+
+  const sessionData = await sessionService.issueSessionForUser(user);
+  return {
+    ok: true,
+    ...sessionData,
+  };
+}
+
+// Resolve whether a profile contact change targets an email address or a phone number
+function parseContactChangeInput(input) {
+  if (typeof input === 'string') {
+    const parsed = parseEmailInput(input);
+    return parsed.error ? parsed : { type: 'email', value: parsed.email };
+  }
+
+  const explicitType = typeof input?.type === 'string' ? input.type.trim().toLowerCase() : '';
+  if (explicitType === 'phone' || (!explicitType && input?.phone && !input?.email)) {
+    const parsed = parsePhoneInput(input?.phone);
+    return parsed.error ? parsed : { type: 'phone', value: parsed.phone };
+  }
+
+  if (explicitType === 'email' || (!explicitType && input?.email)) {
+    const parsed = parseEmailInput(input?.email);
+    return parsed.error ? parsed : { type: 'email', value: parsed.email };
+  }
+
+  return { error: 'Valid email address or phone number required', status: 400 };
+}
+
+// Request OTP to verify a new email address or phone number before updating a logged-in user's profile
+async function requestContactOtp(userId, input) {
+  if (!userId) {
+    return { error: 'Not authenticated', status: 401 };
+  }
+
+  const parsed = parseContactChangeInput(input);
+  if (parsed.error) {
+    return parsed;
+  }
+
+  const user = await db.User.findByPk(userId);
+  if (!user) {
+    return { error: 'User not found', status: 404 };
+  }
+
+  if (parsed.type === 'email') {
+    if (user.email === parsed.value) {
+      return { error: 'New email address must be different from your current email', status: 400 };
+    }
+
+    const existingUser = await db.User.findOne({ where: { email: parsed.value } });
+    if (existingUser && existingUser.id !== userId) {
+      return { error: 'Email address is already associated with another account', status: 409 };
+    }
+
+    if (isSandboxMode()) {
+      return { ok: true, message: 'Verification code sent (sandbox: use 123456)' };
+    }
+
+    const code = generateCode();
+    await saveOtp(parsed.value, code, DEFAULT_TTL_SECONDS, `contact:${userId}`);
+    await emailService.sendOtpEmail(parsed.value, code);
+
+    return { ok: true, message: 'Verification code sent' };
+  }
+
+  // Phone number change
+  if (user.phone === parsed.value) {
+    return {
+      error: 'New phone number must be different from your current phone number',
+      status: 400,
+    };
+  }
+
+  const existingUser = await db.User.findOne({ where: { phone: parsed.value } });
+  if (existingUser && existingUser.id !== userId) {
+    return { error: 'Phone number is already associated with another account', status: 409 };
+  }
+
+  if (isSandboxMode()) {
+    return { ok: true, message: 'Verification code sent (sandbox: use 123456)' };
+  }
+
+  const code = generateCode();
+  await saveOtp(parsed.value, code, DEFAULT_TTL_SECONDS, `contact:${userId}`);
+  await smsService.sendOtpSms(parsed.value, code);
+
+  return { ok: true, message: 'Verification code sent' };
+}
+
+// Verify OTP and update the logged-in user's email address or phone number in PostgreSQL
 async function verifyContactOtp(userId, input, rawCode) {
   if (!userId) {
     return { error: 'Not authenticated', status: 401 };
   }
 
-  const parsed = parseEmailInput(input);
+  const parsed = parseContactChangeInput(input);
   if (parsed.error) {
     return parsed;
   }
@@ -193,20 +429,37 @@ async function verifyContactOtp(userId, input, rawCode) {
     return { error: 'User not found', status: 404 };
   }
 
-  // Ensure the email was not claimed by another user in the meantime
-  const existingUser = await db.User.findOne({ where: { email: parsed.email } });
-  if (existingUser && existingUser.id !== userId) {
-    return { error: 'Email address is already associated with another account', status: 409 };
+  if (parsed.type === 'email') {
+    if (user.email === parsed.value) {
+      return { error: 'New email address must be different from your current email', status: 400 };
+    }
+
+    const existingUser = await db.User.findOne({ where: { email: parsed.value } });
+    if (existingUser && existingUser.id !== userId) {
+      return { error: 'Email address is already associated with another account', status: 409 };
+    }
+  } else {
+    if (user.phone === parsed.value) {
+      return {
+        error: 'New phone number must be different from your current phone number',
+        status: 400,
+      };
+    }
+
+    const existingUser = await db.User.findOne({ where: { phone: parsed.value } });
+    if (existingUser && existingUser.id !== userId) {
+      return { error: 'Phone number is already associated with another account', status: 409 };
+    }
   }
 
-  // Verify the OTP code before updating the database
+  const scope = `contact:${userId}`;
   let verified = false;
   if (isSandboxMode() && code === SANDBOX_OTP) {
     verified = true;
   } else {
-    const storedCode = await getOtp(parsed.email);
+    const storedCode = await getOtp(parsed.value, scope);
     if (storedCode && storedCode === code) {
-      await deleteOtp(parsed.email);
+      await deleteOtp(parsed.value, scope);
       verified = true;
     }
   }
@@ -215,33 +468,40 @@ async function verifyContactOtp(userId, input, rawCode) {
     return { error: 'Invalid or expired OTP', status: 401 };
   }
 
-  // Upsert the verified email onto the user profile record
-  await user.update({ email: parsed.email });
+  if (parsed.type === 'email') {
+    await user.update({ email: parsed.value });
+  } else {
+    await user.update({ phone: parsed.value });
+  }
 
   return {
     ok: true,
-    user: {
-      id: user.id,
-      phone: user.phone,
-      email: user.email || null,
-    },
+    user: db.User.toPublicUser(user),
   };
 }
 
 module.exports = {
   DEFAULT_TTL_SECONDS,
+  SIGNUP_TTL_SECONDS,
   SANDBOX_PHONE,
   SANDBOX_OTP,
   isSandboxMode,
   generateCode,
+  generateSignupToken,
   getOtpKey,
+  getSignupKey,
   getClient,
   setClient,
   saveOtp,
   getOtp,
   deleteOtp,
+  createPendingSignup,
+  getPendingSignup,
+  deletePendingSignup,
   requestOtp,
   verifyOtp,
+  requestSignupEmailOtp,
+  completeSignup,
   requestContactOtp,
   verifyContactOtp,
 };

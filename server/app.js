@@ -41,8 +41,8 @@ app.get('/api/config', (req, res) => {
     storageProvider: envConfig.storageProvider,
   };
 
-  // Provide test phone and code when in sandbox mode
-  if (isSandboxMode()) {
+  // Provide development test phone and OTP ONLY outside production
+  if (!envConfig.isProduction && isSandboxMode()) {
     config.authSandbox = {
       phone: '+15551234567',
       otp: '123456',

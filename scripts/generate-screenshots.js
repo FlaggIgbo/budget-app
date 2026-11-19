@@ -260,7 +260,7 @@ async function setupApiMockRoutes(page, options = {}) {
   const {
     authenticated = true,
     emptyData = false,
-    profileEmail = null,
+    profileEmail = 'alex@budgetapp.local',
     plaidConfigured = true,
   } = options;
 
@@ -321,6 +321,7 @@ async function setupApiMockRoutes(page, options = {}) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          environment: 'development',
           plaidConfigured,
           plaidEnvironment: 'sandbox',
           authSandbox: { phone: '+15551234567', otp: '123456' },
@@ -340,7 +341,13 @@ async function setupApiMockRoutes(page, options = {}) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          user: { id: 'usr_1', phone: '+15551234567', email: profileEmail },
+          user: {
+            id: 'usr_1',
+            firstName: 'Alex',
+            lastName: 'Demo',
+            phone: '+15551234567',
+            email: profileEmail,
+          },
         }),
       });
     }
@@ -354,12 +361,62 @@ async function setupApiMockRoutes(page, options = {}) {
     }
 
     if (pathname.endsWith('/api/otp/verify')) {
+      let body = {};
+      try {
+        body = route.request().postDataJSON() || {};
+      } catch {
+        body = {};
+      }
+      if (body.phone && body.phone !== '+15551234567') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            requiresSignup: true,
+            phone: body.phone,
+            signupToken: 'tok_screenshot_signup',
+          }),
+        });
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          user: { id: 'usr_1', phone: '+15551234567', email: profileEmail },
+          requiresSignup: false,
+          user: {
+            id: 'usr_1',
+            firstName: 'Alex',
+            lastName: 'Demo',
+            phone: '+15551234567',
+            email: profileEmail,
+          },
+        }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/request-email-otp')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, message: 'Verification code sent' }),
+      });
+    }
+
+    if (pathname.endsWith('/api/auth/signup/complete')) {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          user: {
+            id: 'usr_2',
+            firstName: 'Jordan',
+            lastName: 'Lee',
+            phone: '+15559990001',
+            email: 'jordan@example.com',
+          },
         }),
       });
     }
@@ -425,6 +482,8 @@ async function setupApiMockRoutes(page, options = {}) {
         contentType: 'application/json',
         body: JSON.stringify({
           id: 'usr_1',
+          firstName: 'Alex',
+          lastName: 'Demo',
           phone: '+15551234567',
           email: profileEmail,
         }),
@@ -445,7 +504,13 @@ async function setupApiMockRoutes(page, options = {}) {
         contentType: 'application/json',
         body: JSON.stringify({
           ok: true,
-          user: { id: 'usr_1', phone: '+15551234567', email: 'alex@example.com' },
+          user: {
+            id: 'usr_1',
+            firstName: 'Alex',
+            lastName: 'Demo',
+            phone: '+15551234567',
+            email: 'alex@example.com',
+          },
         }),
       });
     }
@@ -549,6 +614,63 @@ async function generateScreenshots() {
     savedFiles.push('screenshots/pages/login-page-otp.png');
     console.log('  ✓ pages/login-page-otp.png');
     await loginPage.close();
+
+    // 1b. Sign Up Page (Details Step & Email OTP Step for new phone number)
+    const signupPage = await browser.newPage({
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: 2,
+      timezoneId: 'America/New_York',
+      locale: 'en-US',
+    });
+    await setupApiMockRoutes(signupPage, { authenticated: false });
+    await signupPage.goto(`${baseUrl}/login`, { waitUntil: 'networkidle' });
+    await signupPage.fill('#phone', '+15559990001');
+    await signupPage.click('button[type="submit"]');
+    await signupPage.waitForSelector('#otp');
+    await signupPage.fill('#otp', '123456');
+    await signupPage.click('button[type="submit"]');
+    await signupPage.waitForURL('**/signup');
+    await signupPage.waitForSelector('#firstName');
+    await signupPage.fill('#firstName', 'Jordan');
+    await signupPage.fill('#lastName', 'Lee');
+    await signupPage.fill('#email', 'jordan@example.com');
+    await applyDeterministicStyles(signupPage);
+
+    // Component: Sign Up Card (Details step)
+    await signupPage.locator('.signup .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'signup-card-details.png'),
+    });
+    savedFiles.push('screenshots/components/signup-card-details.png');
+    console.log('  ✓ components/signup-card-details.png');
+
+    // Page: Sign Up Page (Details step)
+    await signupPage.screenshot({
+      path: path.join(PAGES_DIR, 'signup-page.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/signup-page.png');
+    console.log('  ✓ pages/signup-page.png');
+
+    // Advance to Sign Up Email OTP step
+    await signupPage.click('button[type="submit"]');
+    await signupPage.waitForSelector('#emailOtp');
+    await applyDeterministicStyles(signupPage);
+
+    // Component: Sign Up Card (Email OTP step)
+    await signupPage.locator('.signup .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'signup-card-email-otp.png'),
+    });
+    savedFiles.push('screenshots/components/signup-card-email-otp.png');
+    console.log('  ✓ components/signup-card-email-otp.png');
+
+    // Page: Sign Up Page (Email OTP step)
+    await signupPage.screenshot({
+      path: path.join(PAGES_DIR, 'signup-page-email-otp.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/signup-page-email-otp.png');
+    console.log('  ✓ pages/signup-page-email-otp.png');
+    await signupPage.close();
 
     // 2. Dashboard Page & Dashboard Components
     const dashPage = await browser.newPage({
@@ -663,12 +785,15 @@ async function generateScreenshots() {
       timezoneId: 'America/New_York',
       locale: 'en-US',
     });
-    await setupApiMockRoutes(profilePage, { authenticated: true, profileEmail: null });
+    await setupApiMockRoutes(profilePage, {
+      authenticated: true,
+      profileEmail: 'alex@budgetapp.local',
+    });
     await profilePage.goto(`${baseUrl}/profile`, { waitUntil: 'networkidle' });
     await applyDeterministicStyles(profilePage);
     await profilePage.waitForSelector('.profile-card');
 
-    // Component: Profile Card (Unlinked email)
+    // Component: Profile Card
     await profilePage.locator('.profile-card').screenshot({
       path: path.join(COMPONENTS_DIR, 'profile-card-unlinked.png'),
     });
@@ -684,7 +809,7 @@ async function generateScreenshots() {
     console.log('  ✓ pages/profile-page.png');
 
     // Open Email Verification Card
-    await profilePage.click('button:has-text("Add email")');
+    await profilePage.click('.btn-edit-email');
     await profilePage.waitForSelector('.link-card');
     await profilePage.fill('input[name="newEmail"]', 'alex@example.com');
     await applyDeterministicStyles(profilePage);
@@ -703,6 +828,27 @@ async function generateScreenshots() {
     });
     savedFiles.push('screenshots/pages/profile-page-link-email.png');
     console.log('  ✓ pages/profile-page-link-email.png');
+
+    // Open Phone Number Change Card
+    await profilePage.click('.btn-edit-phone');
+    await profilePage.waitForSelector('input[name="newPhone"]');
+    await profilePage.fill('input[name="newPhone"]', '+15559876543');
+    await applyDeterministicStyles(profilePage);
+
+    // Component: Profile Phone Change Card
+    await profilePage.locator('.link-card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'profile-phone-verify-card.png'),
+    });
+    savedFiles.push('screenshots/components/profile-phone-verify-card.png');
+    console.log('  ✓ components/profile-phone-verify-card.png');
+
+    // Page: Profile Page with Phone Change Open
+    await profilePage.screenshot({
+      path: path.join(PAGES_DIR, 'profile-page-change-phone.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/profile-page-change-phone.png');
+    console.log('  ✓ pages/profile-page-change-phone.png');
     await profilePage.close();
 
     // 5. LLM Chat Page & Chat Component
@@ -759,6 +905,22 @@ async function generateScreenshots() {
     });
     savedFiles.push('screenshots/pages/login-page-mobile.png');
     console.log('  ✓ pages/login-page-mobile.png');
+
+    // Mobile Sign Up Page
+    await mobileLoginPage.fill('#phone', '+15559990001');
+    await mobileLoginPage.click('button[type="submit"]');
+    await mobileLoginPage.waitForSelector('#otp');
+    await mobileLoginPage.fill('#otp', '123456');
+    await mobileLoginPage.click('button[type="submit"]');
+    await mobileLoginPage.waitForURL('**/signup');
+    await mobileLoginPage.waitForSelector('#firstName');
+    await applyDeterministicStyles(mobileLoginPage);
+    await mobileLoginPage.screenshot({
+      path: path.join(PAGES_DIR, 'signup-page-mobile.png'),
+      fullPage: true,
+    });
+    savedFiles.push('screenshots/pages/signup-page-mobile.png');
+    console.log('  ✓ pages/signup-page-mobile.png');
     await mobileLoginPage.close();
 
     // Mobile Dashboard, Bank Accounts, Profile, and Chat

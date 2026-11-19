@@ -34,7 +34,7 @@ function setTransporter(transporter) {
   customTransporter = transporter;
 }
 
-// Send 6-digit OTP verification code via SMTP (used when linking an email to a user profile)
+// Send 6-digit OTP verification code via SMTP (used during signup and when changing a user's profile email)
 async function sendOtpEmail(toEmail, code) {
   const transporter = createTransporter();
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@budgetapp.local';
