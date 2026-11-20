@@ -1000,6 +1000,23 @@ async function main() {
       throw new Error(`Expected 3 transactions, found ${txnCount}`);
     }
 
+    // Verify semantic Material icons on Dashboard bank accounts and transactions
+    const dashAccountIcons = await page.locator('.account-icon-wrap mat-icon').allTextContents();
+    if (
+      !dashAccountIcons.includes('account_balance') ||
+      !dashAccountIcons.includes('savings') ||
+      !dashAccountIcons.includes('credit_card')
+    ) {
+      throw new Error(`Expected semantic account icons on Dashboard, got: ${dashAccountIcons}`);
+    }
+    const dashTxnIcons = await page.locator('.txn-icon-wrap mat-icon').allTextContents();
+    if (!dashTxnIcons.includes('payments') || !dashTxnIcons.includes('restaurant')) {
+      throw new Error(`Expected semantic category icons on Dashboard txns, got: ${dashTxnIcons}`);
+    }
+    console.log(
+      `   ✓ Semantic Material icons verified on Dashboard accounts (${dashAccountIcons.join(', ')})`
+    );
+
     await page.click('.btn-sync');
     await sleep(300);
     console.log('   ✅ Dashboard net worth, charts, and transaction sync verified');
@@ -1016,6 +1033,19 @@ async function main() {
     if (enrollmentCount !== 2) {
       throw new Error(`Expected 2 connected institutions, found ${enrollmentCount}`);
     }
+    const bankAccountIcons = await page.locator('.acct-icon').allTextContents();
+    if (
+      !bankAccountIcons.includes('account_balance') ||
+      !bankAccountIcons.includes('savings') ||
+      !bankAccountIcons.includes('credit_card')
+    ) {
+      throw new Error(
+        `Expected semantic Material icons on Bank Accounts list, got: ${bankAccountIcons}`
+      );
+    }
+    console.log(
+      `   ✓ Semantic Material icons verified on Bank Accounts (${bankAccountIcons.join(', ')})`
+    );
     console.log('   ✅ Bank Accounts page verified');
 
     // -------------------------------------------------------------

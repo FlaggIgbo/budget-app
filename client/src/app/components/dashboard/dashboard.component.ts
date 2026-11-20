@@ -19,6 +19,7 @@ import {
 import { AuthService } from '../../services/auth.service';
 import { PwaService } from '../../services/pwa.service';
 import { OfflineQueueService } from '../../services/offline-queue.service';
+import { getAccountIcon, getCategoryIcon } from '../../utils/material-icons.util';
 
 export interface InstitutionGroup {
   institutionName: string;
@@ -158,9 +159,14 @@ export interface InstitutionGroup {
                     <div class="account-list">
                       @for (a of group.accounts; track a.id) {
                         <div class="account-item">
-                          <div class="account-main">
-                            <span class="account-name">{{ a.name }}</span>
-                            <span class="account-meta">{{ a.institutionName || 'Bank' }}</span>
+                          <div class="account-leading">
+                            <div class="account-icon-wrap" [class.is-liability]="!a.isAsset">
+                              <mat-icon>{{ getAccountIcon(a.type, a.subtype) }}</mat-icon>
+                            </div>
+                            <div class="account-main">
+                              <span class="account-name">{{ a.name }}</span>
+                              <span class="account-meta">{{ a.institutionName || 'Bank' }}</span>
+                            </div>
                           </div>
                           <span class="balance" [class.liability]="!a.isAsset">
                             {{ a.balance | currency }}
@@ -192,19 +198,26 @@ export interface InstitutionGroup {
         @if (s.quickStats) {
           <section class="quick-stats">
             <div class="section-title-row">
+              <mat-icon class="section-title-icon">insights</mat-icon>
               <h2>Quick Stats</h2>
               <span class="section-badge">Live</span>
             </div>
             <div class="stats-grid">
               <div class="stat-card">
-                <span class="stat-label">This Month</span>
+                <span class="stat-label">
+                  <mat-icon class="stat-label-icon">calendar_today</mat-icon>
+                  This Month
+                </span>
                 <div class="stat-values">
                   <span class="stat-income">+{{ s.quickStats.thisMonthIncome | currency }}</span>
                   <span class="stat-expense">-{{ s.quickStats.thisMonthExpenses | currency }}</span>
                 </div>
               </div>
               <div class="stat-card">
-                <span class="stat-label">MoM Trend</span>
+                <span class="stat-label">
+                  <mat-icon class="stat-label-icon">trending_up</mat-icon>
+                  MoM Trend
+                </span>
                 <div class="stat-values">
                   <span
                     class="stat-pct"
@@ -223,7 +236,10 @@ export interface InstitutionGroup {
                 </div>
               </div>
               <div class="stat-card">
-                <span class="stat-label">Year to Date (YTD)</span>
+                <span class="stat-label">
+                  <mat-icon class="stat-label-icon">date_range</mat-icon>
+                  Year to Date (YTD)
+                </span>
                 <div class="stat-values">
                   <span class="stat-income">+{{ s.quickStats.ytdIncome | currency }}</span>
                   <span class="stat-expense">-{{ s.quickStats.ytdExpenses | currency }}</span>
@@ -238,7 +254,12 @@ export interface InstitutionGroup {
             <mat-card-header>
               <div class="chart-header">
                 <div>
-                  <mat-card-title><h2>Income vs. Expenses</h2></mat-card-title>
+                  <mat-card-title>
+                    <h2 class="heading-with-icon">
+                      <mat-icon class="section-title-icon">bar_chart</mat-icon>
+                      Income vs. Expenses
+                    </h2>
+                  </mat-card-title>
                   <mat-card-subtitle class="subtitle">Monthly cash flow</mat-card-subtitle>
                 </div>
                 <div class="chart-legend">
@@ -277,7 +298,12 @@ export interface InstitutionGroup {
 
           <mat-card appearance="outlined" class="section-card spending-category">
             <mat-card-header>
-              <mat-card-title><h2>Spending by Category</h2></mat-card-title>
+              <mat-card-title>
+                <h2 class="heading-with-icon">
+                  <mat-icon class="section-title-icon">pie_chart</mat-icon>
+                  Spending by Category
+                </h2>
+              </mat-card-title>
               <mat-card-subtitle class="subtitle">This month breakdown</mat-card-subtitle>
             </mat-card-header>
             <mat-card-content>
@@ -285,7 +311,10 @@ export interface InstitutionGroup {
                 <div class="category-bars">
                   @for (c of s.spendingByCategory; track c.category) {
                     <div class="cat-row">
-                      <span class="cat-name">{{ c.category }}</span>
+                      <span class="cat-name">
+                        <mat-icon class="cat-icon">{{ getCategoryIcon(c.category) }}</mat-icon>
+                        <span>{{ c.category }}</span>
+                      </span>
                       <div class="cat-bar-wrap">
                         <div class="cat-bar" [style.width.%]="catBarWidth(c.amount)"></div>
                       </div>
@@ -303,7 +332,10 @@ export interface InstitutionGroup {
         <mat-card appearance="outlined" class="section-card recent-transactions">
           <mat-card-header>
             <div class="txns-header">
-              <h2>Transactions per Institution</h2>
+              <h2 class="heading-with-icon">
+                <mat-icon class="section-title-icon">receipt_long</mat-icon>
+                Transactions per Institution
+              </h2>
               <div class="filter-row">
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Filter by institution</mat-label>
@@ -341,7 +373,7 @@ export interface InstitutionGroup {
                 @for (t of filteredTransactions(); track t.id) {
                   <li class="txn-item">
                     <div class="txn-icon-wrap" [class.is-income]="t.amount > 0">
-                      <mat-icon>{{ t.amount > 0 ? 'arrow_downward' : 'shopping_bag' }}</mat-icon>
+                      <mat-icon>{{ getCategoryIcon(t.category, t.amount) }}</mat-icon>
                     </div>
                     <div class="txn-main">
                       <span class="txn-desc">{{ t.description }}</span>
@@ -389,7 +421,7 @@ export interface InstitutionGroup {
 
       <div class="footer-row">
         <a mat-flat-button routerLink="/accounts" class="link-accounts">
-          <mat-icon>add_link</mat-icon>
+          <mat-icon>account_balance</mat-icon>
           Connect bank or credit card →
         </a>
         @if (apiStatus(); as status) {
@@ -692,6 +724,59 @@ export interface InstitutionGroup {
         border-radius: 8px;
         border: 1px solid #edf2f7;
       }
+      .account-leading {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+      .account-icon-wrap {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .account-icon-wrap.is-liability {
+        background: #fef2f2;
+        color: #dc2626;
+      }
+      .account-icon-wrap mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+      }
+      .heading-with-icon {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: 0;
+      }
+      .section-title-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+        color: #2563eb;
+      }
+      .stat-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.8rem;
+        color: #64748b;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .stat-label-icon {
+        font-size: 15px;
+        width: 15px;
+        height: 15px;
+        color: #64748b;
+      }
       .account-name {
         font-size: 0.9rem;
         font-weight: 500;
@@ -743,13 +828,6 @@ export interface InstitutionGroup {
         border: 1px solid rgba(226, 232, 240, 0.9);
         padding: 1.25rem;
         box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
-      }
-      .stat-label {
-        font-size: 0.8rem;
-        color: #64748b;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
       }
       .stat-values {
         display: flex;
@@ -862,10 +940,20 @@ export interface InstitutionGroup {
         text-align: right;
       }
       .cat-name {
-        width: 6.5rem;
+        width: 8.5rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
         font-size: 0.85rem;
         font-weight: 500;
         color: #334155;
+      }
+      .cat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        color: #64748b;
+        flex-shrink: 0;
       }
       .cat-bar {
         height: 100%;
@@ -1291,6 +1379,9 @@ export class DashboardComponent implements OnInit {
     const percent = (amount / maxAmount) * 100;
     return Math.max(5, percent);
   }
+
+  readonly getAccountIcon = getAccountIcon;
+  readonly getCategoryIcon = getCategoryIcon;
 
   // Log user out
   logout() {

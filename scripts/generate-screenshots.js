@@ -793,7 +793,8 @@ async function generateScreenshots() {
       console.log(`  ✓ components/${target.filename}`);
     }
 
-    // Page: Dashboard Page (Populated)
+    // Page: Dashboard Page (Populated — scroll back to top so sticky toolbar stays aligned)
+    await dashPage.evaluate(() => window.scrollTo(0, 0));
     await dashPage.screenshot({
       path: path.join(PAGES_DIR, 'dashboard-page.png'),
       fullPage: true,

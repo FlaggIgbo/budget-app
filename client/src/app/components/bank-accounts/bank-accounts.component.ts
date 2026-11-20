@@ -15,6 +15,7 @@ import {
   BankConfig,
 } from '../../services/bank.service';
 import { OfflineQueueService } from '../../services/offline-queue.service';
+import { getAccountIcon } from '../../utils/material-icons.util';
 
 @Component({
   selector: 'app-bank-accounts',
@@ -154,7 +155,9 @@ import { OfflineQueueService } from '../../services/offline-queue.service';
                       <mat-list class="accounts">
                         @for (a of accounts; track a.id) {
                           <mat-list-item class="account">
-                            <mat-icon matListItemIcon class="acct-icon">credit_card</mat-icon>
+                            <mat-icon matListItemIcon class="acct-icon">{{
+                              getAccountIcon(a.type, a.subtype)
+                            }}</mat-icon>
                             <span matListItemTitle class="name">{{ a.name }}</span>
                             <span matListItemLine class="meta">
                               <span class="chip-digits">···· {{ a.last_four }}</span>
@@ -643,6 +646,8 @@ export class BankAccountsComponent implements OnInit {
       },
     });
   }
+
+  readonly getAccountIcon = getAccountIcon;
 
   // Log user out
   logout() {
