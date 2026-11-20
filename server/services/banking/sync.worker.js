@@ -1,7 +1,7 @@
-const db = require('../models');
+const db = require('../../models');
 const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
-const { getEnvConfig } = require('../config/env.config');
+const { getEnvConfig } = require('../../config/env.config');
 
 const DEV_SEED_TOKEN_PREFIX = 'dev-seed-';
 

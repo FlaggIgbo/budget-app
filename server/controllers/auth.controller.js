@@ -1,8 +1,8 @@
 const db = require('../models');
-const sessionService = require('../services/session.service');
-const otpService = require('../services/otp.service');
-const passkeyService = require('../services/passkey.service');
-const passwordService = require('../services/password.service');
+const sessionService = require('../services/authentication/session.service');
+const otpService = require('../services/authentication/otp.service');
+const passkeyService = require('../services/authentication/passkey.service');
+const passwordService = require('../services/authentication/password.service');
 
 const COOKIE_NAME = 'session';
 

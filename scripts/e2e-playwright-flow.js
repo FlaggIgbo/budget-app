@@ -125,31 +125,7 @@ async function setupStatefulE2EMocks(page, offlineState = { offline: false }) {
       createdAt: '2026-11-02T12:00:00.000Z',
     },
   ];
-
-  // Provide deterministic local sans-serif @font-face mappings without hanging networkidle in offline environments
-  await page.route('https://fonts.googleapis.com/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'text/css',
-      body: `
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 300 800;
-          src: local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
-        }
-        @font-face {
-          font-family: 'Roboto';
-          font-style: normal;
-          font-weight: 300 800;
-          src: local('Roboto'), local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
-        }
-      `,
-    })
-  );
-  await page.route('https://fonts.gstatic.com/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
-  );
+  const pushSubscriptionsByEndpoint = new Map();
 
   await page.context().route('**/api/**', async (route) => {
     if (offlineState.offline) {
@@ -678,6 +654,84 @@ async function setupStatefulE2EMocks(page, offlineState = { offline: false }) {
       });
     }
 
+    if (pathname.endsWith('/api/push/vapid-public-key')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: true,
+          vapidPublicKey: 'BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8',
+        }),
+      });
+    }
+
+    if (pathname.endsWith('/api/push/subscriptions')) {
+      const subs = Array.from(pushSubscriptionsByEndpoint.values());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: subs.length, subscriptions: subs }),
+      });
+    }
+
+    if (pathname.endsWith('/api/push/subscribe') && method === 'POST') {
+      if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Invalid PushSubscription payload' }),
+        });
+      }
+      const record = {
+        id: `push_sub_${pushSubscriptionsByEndpoint.size + 1}`,
+        endpoint: body.endpoint,
+        expirationTime: body.expirationTime ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      pushSubscriptionsByEndpoint.set(body.endpoint, record);
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          subscription: record,
+          count: pushSubscriptionsByEndpoint.size,
+        }),
+      });
+    }
+
+    if (
+      (pathname.endsWith('/api/push/unsubscribe') && method === 'POST') ||
+      (pathname.endsWith('/api/push/subscribe') && method === 'DELETE')
+    ) {
+      const removed = Boolean(body.endpoint && pushSubscriptionsByEndpoint.delete(body.endpoint));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          removed,
+          count: pushSubscriptionsByEndpoint.size,
+        }),
+      });
+    }
+
+    if (pathname.endsWith('/api/push/test') && method === 'POST') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          jobId: `push_job_${Date.now()}`,
+          delivery: {
+            status: 'completed',
+            deliveredCount: pushSubscriptionsByEndpoint.size,
+            prunedCount: 0,
+          },
+        }),
+      });
+    }
+
     if (pathname.endsWith('/api/chat/ask')) {
       return route.fulfill({
         status: 200,
@@ -763,7 +817,7 @@ async function main() {
   await page.addInitScript(() => {
     const style = document.createElement('style');
     style.textContent = `
-      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      html, body, h1, h2, h3, h4, h5, h6, p, span:not(.material-icons), button, input, label, div,
       .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
       }
@@ -816,6 +870,22 @@ async function main() {
     if (!pwaInfo.swScope) {
       throw new Error('Expected active Service Worker registration for PWA installability');
     }
+    // Verify zero external Google Fonts CDN links and self-hosted Material Icons font loads locally
+    const fontCheck = await page.evaluate(async () => {
+      const cdnLinks = Array.from(document.querySelectorAll('link[href]')).filter((el) =>
+        /fonts\.(googleapis|gstatic)\.com/i.test(el.getAttribute('href') || '')
+      );
+      const fontRes = await fetch('/fonts/material-icons.woff2');
+      return { cdnLinkCount: cdnLinks.length, localIconFontOk: fontRes.ok };
+    });
+    if (fontCheck.cdnLinkCount !== 0) {
+      throw new Error(`Expected 0 Google Fonts CDN links, found ${fontCheck.cdnLinkCount}`);
+    }
+    if (!fontCheck.localIconFontOk) {
+      throw new Error('Expected self-hosted /fonts/material-icons.woff2 to load locally');
+    }
+    console.log('   ✓ Zero Google Fonts CDN links; self-hosted Material Icons WOFF2 loaded');
+
     console.log(
       `   ✓ Manifest loaded (${pwaInfo.manifest.name}, display=${pwaInfo.manifest.display})`
     );
@@ -1020,6 +1090,89 @@ async function main() {
     await page.waitForSelector('.btn-add-passkey');
     console.log('   ✅ Deleted passkey from Profile page');
 
+    // Enable, test, and disable native Web Push notifications on Profile page
+    await page.evaluate(async () => {
+      let currentSub = null;
+      const mockSubJson = {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/e2e-device-1',
+        expirationTime: null,
+        keys: {
+          p256dh:
+            'BOr7mockPublicKeyForE2EPushSubscriptionTest0000000000000000000000000000000000000000000',
+          auth: 'mockAuthSecret16Byte',
+        },
+      };
+
+      Object.defineProperty(Notification, 'permission', {
+        configurable: true,
+        get: () => 'granted',
+      });
+      Notification.requestPermission = async () => 'granted';
+
+      const reg = await navigator.serviceWorker.ready;
+      Object.defineProperty(reg, 'pushManager', {
+        configurable: true,
+        value: {
+          getSubscription: async () => currentSub,
+          subscribe: async () => {
+            currentSub = {
+              endpoint: mockSubJson.endpoint,
+              toJSON: () => mockSubJson,
+              unsubscribe: async () => {
+                currentSub = null;
+                return true;
+              },
+            };
+            return currentSub;
+          },
+        },
+      });
+    });
+
+    await page.waitForSelector('.btn-enable-push');
+    await page.click('.btn-enable-push');
+    await page.waitForSelector('.btn-test-push');
+    console.log('   ✓ Enabled Web Push notifications via native PushManager & PushSubscription');
+
+    // Verify VAPID public key was persisted in IndexedDB push_state store for SW pushsubscriptionchange
+    const savedVapidInIdb = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('budget-app-offline-db');
+          req.onsuccess = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('push_state')) {
+              db.close();
+              resolve(null);
+              return;
+            }
+            const tx = db.transaction('push_state', 'readonly');
+            const getReq = tx.objectStore('push_state').get('vapidPublicKey');
+            getReq.onsuccess = () => {
+              db.close();
+              resolve(getReq.result ? getReq.result.value : null);
+            };
+            getReq.onerror = () => {
+              db.close();
+              resolve(null);
+            };
+          };
+          req.onerror = () => resolve(null);
+        })
+    );
+    if (!savedVapidInIdb) {
+      throw new Error('Expected vapidPublicKey to be persisted in IndexedDB push_state store');
+    }
+    console.log('   ✓ Persisted VAPID public key in IndexedDB push_state store');
+
+    await page.click('.btn-test-push');
+    await page.waitForSelector('.success-banner');
+    console.log('   ✓ Dispatched test push notification via RabbitMQ push queue');
+
+    await page.click('.btn-disable-push');
+    await page.waitForSelector('.btn-enable-push');
+    console.log('   ✅ Disabled Web Push notifications via native PushSubscription.unsubscribe()');
+
     // -------------------------------------------------------------
     // TEST SUITE 6: AI Financial Assistant Chat Page
     // -------------------------------------------------------------
@@ -1054,7 +1207,7 @@ async function main() {
     await page.waitForFunction(
       () =>
         new Promise((resolve) => {
-          const req = indexedDB.open('budget-app-offline-db', 1);
+          const req = indexedDB.open('budget-app-offline-db');
           req.onsuccess = () => {
             const db = req.result;
             if (!db.objectStoreNames.contains('mutation_queue')) {
@@ -1082,7 +1235,7 @@ async function main() {
     const queuedInIdb = await page.evaluate(
       () =>
         new Promise((resolve, reject) => {
-          const req = indexedDB.open('budget-app-offline-db', 1);
+          const req = indexedDB.open('budget-app-offline-db');
           req.onsuccess = () => {
             const db = req.result;
             const tx = db.transaction('mutation_queue', 'readonly');
@@ -1111,7 +1264,7 @@ async function main() {
     await page.waitForFunction(
       () =>
         new Promise((resolve) => {
-          const req = indexedDB.open('budget-app-offline-db', 1);
+          const req = indexedDB.open('budget-app-offline-db');
           req.onsuccess = () => {
             const db = req.result;
             const tx = db.transaction('mutation_queue', 'readonly');

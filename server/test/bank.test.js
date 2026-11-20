@@ -1,13 +1,13 @@
 // Bank service, RabbitMQ Priority Queue & Daily CRON, MinIO/R2 Statement Storage, and LLM Chat tests
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert');
-const bankService = require('../services/bank.service');
-const bankAdapter = require('../services/plaid.adapter');
-const queueService = require('../services/queue.service');
-const cronScheduler = require('../services/cron.scheduler');
-const storageService = require('../services/storage.service');
-const llmService = require('../services/llm.service');
-const sentryService = require('../services/sentry.service');
+const bankService = require('../services/banking/bank.service');
+const bankAdapter = require('../services/banking/plaid.adapter');
+const queueService = require('../services/jobs/queue.service');
+const cronScheduler = require('../services/jobs/cron.scheduler');
+const storageService = require('../services/infrastructure/storage.service');
+const llmService = require('../services/ai/llm.service');
+const sentryService = require('../services/infrastructure/sentry.service');
 
 describe('Bank Service, RabbitMQ Queue, Statement Storage & LLM Assistant', () => {
   let db;

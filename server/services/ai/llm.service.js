@@ -1,7 +1,7 @@
-const { getEnvConfig } = require('../config/env.config');
-const bankService = require('./bank.service');
-const storageService = require('./storage.service');
-const sentryService = require('./sentry.service');
+const { getEnvConfig } = require('../../config/env.config');
+const bankService = require('../banking/bank.service');
+const storageService = require('../infrastructure/storage.service');
+const sentryService = require('../infrastructure/sentry.service');
 
 // ============================================================================
 // LLM FINANCIAL ASSISTANT SERVICE (GEMINI STUB)
@@ -37,10 +37,12 @@ async function askFinancialAssistant(userId, question, conversationHistory = [])
     const { geminiApiKey } = getEnvConfig();
     const context = await gatherUserFinancialContext(userId);
 
-    // TODO: Wire up the official Google Gen AI SDK (`@google/genai`) using `geminiApiKey`
-    // (`process.env.GEMINI_API_KEY`) to generate personalized budgeting and cash-flow advice
-    // grounded in `context.netWorth`, `context.dashboardSummary`, and parsed bank statements
-    // from `context.statements` (MinIO / Cloudflare R2).
+    // TODO: Do NOT install a third-party AI SDK — call the Gemini HTTPS REST API directly using
+    // native `fetch()` with `x-goog-api-key: geminiApiKey` (`process.env.GEMINI_API_KEY`):
+    //   POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+    //   Headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey }
+    // Ground the prompt in `context.netWorth`, `context.dashboardSummary`, and parsed bank statements
+    // from `context.statements` (MinIO in dev / Cloudflare R2 in production).
     const netWorthVal = context.netWorth?.netWorth ?? 0;
     const monthlyIncome = context.dashboardSummary?.quickStats?.thisMonthIncome ?? 0;
     const monthlyExpenses = context.dashboardSummary?.quickStats?.thisMonthExpenses ?? 0;

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { createClient } = require('redis');
-const db = require('../models');
+const db = require('../../models');
 const sessionService = require('./session.service');
 
 // ============================================================================

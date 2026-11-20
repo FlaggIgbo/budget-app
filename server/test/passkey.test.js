@@ -3,9 +3,9 @@ const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
 const db = require('../models');
-const otpService = require('../services/otp.service');
-const passkeyService = require('../services/passkey.service');
-const sessionService = require('../services/session.service');
+const otpService = require('../services/authentication/otp.service');
+const passkeyService = require('../services/authentication/passkey.service');
+const sessionService = require('../services/authentication/session.service');
 
 function encodeCborHeader(majorType, length) {
   const prefix = majorType << 5;

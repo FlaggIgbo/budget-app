@@ -1,13 +1,15 @@
-const { getEnvConfig } = require('../config/env.config');
+const { getEnvConfig } = require('../../config/env.config');
 const sentryService = require('./sentry.service');
 
 // ============================================================================
-// OBJECT STORAGE SERVICE (MinIO Local S3 / Production Cloudflare R2)
-// Stores and retrieves user bank statements (PDF/CSV/text) used for archival
-// and for enriching the LLM Financial Assistant's context.
+// OBJECT STORAGE SERVICE (MinIO in Local Dev / Cloudflare R2 in Production)
+// NOTE: This repo intentionally does NOT use AWS S3 — only MinIO (dev) and
+// Cloudflare R2 (prod). Both expose S3-compatible HTTPS APIs that should be
+// called directly using native `fetch()` + `node:crypto` for AWS SigV4 signing
+// (zero `@aws-sdk/*` third-party dependencies).
 // ============================================================================
 
-// Return active S3/R2 storage endpoint and bucket configuration
+// Return active MinIO / Cloudflare R2 storage endpoint and bucket configuration
 function getStorageConfig() {
   const env = getEnvConfig();
   const isR2 = env.storageProvider === 'r2';
@@ -35,8 +37,9 @@ async function uploadBankStatement(userId, { institutionName, statementPeriod, f
     const config = getStorageConfig();
     const key = `statements/${userId}/${statementPeriod || 'latest'}/${fileName || 'statement.pdf'}`;
 
-    // TODO: Wire up @aws-sdk/client-s3 PutObjectCommand against `config.endpoint`
-    // and `config.bucket` to persist bank statement bytes in MinIO / Cloudflare R2.
+    // TODO: Do NOT install `@aws-sdk/client-s3` (we only use MinIO and Cloudflare R2, not AWS S3).
+    // Sign an S3-compatible SigV4 PUT request with `node:crypto` (HMAC-SHA256 / SHA-256 payload hash)
+    // and send it directly via native `fetch(`${config.endpoint}/${config.bucket}/${key}`, { method: 'PUT', ... })`.
     return {
       todo: true,
       provider: config.provider,
@@ -60,8 +63,9 @@ async function listUserStatements(userId) {
     const config = getStorageConfig();
     const prefix = `statements/${userId}/`;
 
-    // TODO: Wire up @aws-sdk/client-s3 ListObjectsV2Command against `config.bucket`
-    // with `Prefix: prefix` to list all uploaded bank statements for the user.
+    // TODO: Do NOT install `@aws-sdk/client-s3` (MinIO / Cloudflare R2 only).
+    // Sign an S3-compatible SigV4 GET request with `node:crypto` and call native
+    // `fetch(`${config.endpoint}/${config.bucket}?list-type=2&prefix=${encodeURIComponent(prefix)}`)`.
     return {
       todo: true,
       provider: config.provider,
@@ -83,8 +87,9 @@ async function getBankStatement(userId, statementKey) {
   try {
     const config = getStorageConfig();
 
-    // TODO: Wire up @aws-sdk/client-s3 GetObjectCommand to fetch statement content
-    // for parsing or LLM context injection.
+    // TODO: Do NOT install `@aws-sdk/client-s3` (MinIO / Cloudflare R2 only).
+    // Sign an S3-compatible SigV4 GET request with `node:crypto` and call native
+    // `fetch(`${config.endpoint}/${config.bucket}/${statementKey}`)` for parsing or LLM context injection.
     return {
       todo: true,
       provider: config.provider,

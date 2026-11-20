@@ -1,10 +1,9 @@
-const https = require('https');
-const { getPlaidEnvironment } = require('../config/env.config');
+const { getPlaidEnvironment } = require('../../config/env.config');
 
 // ============================================================================
 // PLAID API ADAPTER
 // Handles all HTTPS requests to Plaid API (sandbox, development, production)
-// using PLAID_CLIENT_ID and PLAID_SECRET.
+// using native Web Standards fetch() with PLAID_CLIENT_ID and PLAID_SECRET.
 // ============================================================================
 
 const PLAID_ENVIRONMENTS = {
@@ -48,15 +47,13 @@ function getConnectConfig() {
   };
 }
 
-// Make an authenticated POST request to the Plaid API
-function plaidRequest(endpoint, body = {}) {
+// Make an authenticated POST request to the Plaid API using native fetch()
+async function plaidRequest(endpoint, body = {}) {
   const clientId = process.env.PLAID_CLIENT_ID || '';
   const secret = process.env.PLAID_SECRET || '';
 
   if (!clientId || !secret) {
-    return Promise.reject(
-      new Error('Plaid credentials (PLAID_CLIENT_ID and PLAID_SECRET) are required.')
-    );
+    throw new Error('Plaid credentials (PLAID_CLIENT_ID and PLAID_SECRET) are required.');
   }
 
   const baseUrl = getBaseUrl();
@@ -64,59 +61,42 @@ function plaidRequest(endpoint, body = {}) {
     ? endpoint
     : `${baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
-  const url = new URL(fullUrl);
-  const payload = JSON.stringify({
-    client_id: clientId,
-    secret: secret,
-    ...body,
+  const response = await fetch(fullUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Plaid-Version': PLAID_VERSION,
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      secret: secret,
+      ...body,
+    }),
   });
 
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: url.hostname,
-      port: 443,
-      path: url.pathname + url.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-        'Plaid-Version': PLAID_VERSION,
-      },
-    };
+  const rawData = await response.text();
+  let parsed = null;
+  if (rawData) {
+    try {
+      parsed = JSON.parse(rawData);
+    } catch {
+      if (!response.ok) {
+        throw new Error(rawData || `Plaid API error code: ${response.status}`);
+      }
+      throw new Error(`Invalid JSON response from Plaid API (${response.status})`);
+    }
+  }
 
-    const req = https.request(options, (res) => {
-      let rawData = '';
+  if (response.ok) {
+    return parsed;
+  }
 
-      res.on('data', (chunk) => {
-        rawData += chunk;
-      });
-
-      res.on('end', () => {
-        try {
-          const parsed = rawData ? JSON.parse(rawData) : null;
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(parsed);
-          } else {
-            const errorMsg =
-              parsed?.error_message ||
-              parsed?.display_message ||
-              parsed?.error_code ||
-              `Plaid API error code: ${res.statusCode}`;
-            reject(new Error(errorMsg));
-          }
-        } catch {
-          reject(new Error(rawData || `Plaid API error code: ${res.statusCode}`));
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      reject(err);
-    });
-
-    req.write(payload);
-    req.end();
-  });
+  const errorMsg =
+    parsed?.error_message ||
+    parsed?.display_message ||
+    parsed?.error_code ||
+    `Plaid API error code: ${response.status}`;
+  throw new Error(errorMsg);
 }
 
 // Normalize a Plaid account object into the shape expected by the app

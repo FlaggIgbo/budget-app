@@ -9,16 +9,16 @@ A simple budgeting app to track your net worth, income, expenses, and linked ban
 - **Spending by Category** — Visual breakdown of expenses for the current month.
 - **Bank Accounts** — Link and disconnect bank accounts via Plaid (supports `sandbox` and `development` in localhost dev, and `production` in live).
 - **Phone OTP Login & Redis 1h Sessions** — Phone number + SMS verification code login with 1-hour session tokens stored in Redis, plus verified email linking on your Profile for personal finance summaries.
-- **Priority RabbitMQ Sync Queue** — Enqueues high-priority balance/transaction sync jobs when a user logs in and normal-priority jobs from a daily CRON scheduler.
+- **Priority RabbitMQ Sync Queue & Web Push Notifications** — Enqueues high-priority balance/transaction sync jobs when a user logs in and normal-priority jobs from a daily CRON scheduler, plus asynchronous Web Push delivery (`budget_app.push_notifications` + DLQ) backed by durable PostgreSQL `push_subscriptions` with automatic 404/410 self-healing cleanup and native MDN Push API / IndexedDB support.
 - **AI Financial Assistant (`/chat`)** — Ask budgeting and cash-flow questions grounded in your PostgreSQL financial data and bank statements stored in MinIO / Cloudflare R2 (`GEMINI_API_KEY`).
 
 ## Tech Stack
 
-- **Frontend**: Angular 19 + Angular Material (Material 3)
+- **Frontend**: Angular 19 + Angular Material (Material 3) + Installable PWA (native MDN Push API, WebAuthn Passkeys, WebOTP, IndexedDB offline queue)
 - **Backend**: Node.js + Express
-- **Database**: PostgreSQL (via Sequelize ORM)
-- **Session & OTP Store**: Redis (5-min OTP TTL, 1-hour Session TTL)
-- **Job Queue**: RabbitMQ (Priority Queue for login-triggered & daily CRON sync jobs)
+- **Database**: PostgreSQL (via Sequelize ORM — users, passkeys, enrollments, accounts, transactions, push subscriptions)
+- **Session & OTP Store**: Redis (5-min OTP TTL, 1-hour Session TTL, push deduplication)
+- **Job Queue**: RabbitMQ (Priority Queue for login-triggered & daily CRON sync jobs, plus Web Push notification delivery & DLQ)
 - **Object Storage**: MinIO (local S3-compatible dev cluster) / Cloudflare R2 (production bank statements)
 - **Bank Integration**: Plaid (Plaid Link + REST API)
 - **Observability**: Sentry error logging stubs (`SENTRY_DSN`)

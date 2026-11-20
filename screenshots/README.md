@@ -22,7 +22,7 @@ screenshots/
 ├── components/   # Isolated UI component snapshots across various states
 │                 # (login phone/OTP cards, signup details/email OTP/passkey/warning cards,
 │                 #  net worth, cash flow, category bars, quick stats, transactions filter,
-│                 #  Plaid enrollment card, profile contact verification & passkey management)
+│                 #  Plaid enrollment card, profile contact verification, passkey & push notifications)
 └── pages/        # Full-page responsive views across desktop (1280x800) and mobile (390x844)
                   # viewports for Login, Signup, Dashboard, Bank Accounts, Profile, and Chat routes
 ```

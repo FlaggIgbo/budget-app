@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const db = require('../models');
+const db = require('../../models');
 
 // ============================================================================
 // SECRETS VAULT

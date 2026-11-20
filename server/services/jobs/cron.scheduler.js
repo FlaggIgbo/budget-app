@@ -1,7 +1,7 @@
 const { setInterval, clearInterval } = require('node:timers');
-const db = require('../models');
+const db = require('../../models');
 const queueService = require('./queue.service');
-const sentryService = require('./sentry.service');
+const sentryService = require('../infrastructure/sentry.service');
 
 // ============================================================================
 // DAILY CRON SCHEDULER

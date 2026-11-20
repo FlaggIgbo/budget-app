@@ -1,9 +1,10 @@
-// Budget App Service Worker — installable PWA app-shell caching + IndexedDB offline mutation queue
-// with Background Sync API and online-event replay support.
-const CACHE_NAME = 'budget-app-shell-v2';
+// Budget App Service Worker — installable PWA app-shell caching, IndexedDB offline mutation queue
+// with Background Sync API replay, and native W3C Web Push API notification handling.
+const CACHE_NAME = 'budget-app-shell-v3';
 const OFFLINE_DB_NAME = 'budget-app-offline-db';
-const OFFLINE_DB_VERSION = 1;
+const OFFLINE_DB_VERSION = 2;
 const MUTATION_STORE = 'mutation_queue';
+const PUSH_STATE_STORE = 'push_state';
 const SYNC_TAG = 'budget-app-offline-queue';
 const MAX_RETRIES = 5;
 
@@ -12,6 +13,7 @@ const APP_SHELL_URLS = [
   '/index.html',
   '/manifest.webmanifest',
   '/favicon.ico',
+  '/fonts/material-icons.woff2',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
   '/icons/apple-touch-icon.png',
@@ -54,10 +56,48 @@ function openOfflineDb() {
         });
         store.createIndex('by_createdAt', 'createdAt', { unique: false });
       }
+      if (!db.objectStoreNames.contains(PUSH_STATE_STORE)) {
+        db.createObjectStore(PUSH_STATE_STORE, { keyPath: 'key' });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+async function getPushState(key) {
+  const db = await openOfflineDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUSH_STATE_STORE, 'readonly');
+    const store = tx.objectStore(PUSH_STATE_STORE);
+    const req = store.get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : null);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function setPushState(key, value) {
+  const db = await openOfflineDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUSH_STATE_STORE, 'readwrite');
+    const store = tx.objectStore(PUSH_STATE_STORE);
+    const req = store.put({ key, value, updatedAt: Date.now() });
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+function urlBase64ToUint8Array(base64Url) {
+  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
+  const base64 = (base64Url + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }
 
 async function enqueueMutation(record) {
@@ -266,6 +306,146 @@ self.addEventListener('message', (event) => {
         })
     );
   }
+});
+
+// ============================================================================
+// WEB PUSH API LISTENERS (push, notificationclick, pushsubscriptionchange)
+// Uses native MDN Push API & Notification API + IndexedDB offline fallback.
+// ============================================================================
+self.addEventListener('push', (event) => {
+  let payload = {
+    title: 'Budget App',
+    body: 'You have a new update in Budget App.',
+    url: '/dashboard',
+    tag: 'budget-app-notification',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-192x192.png',
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === 'object') {
+        payload = { ...payload, ...parsed };
+      }
+    } catch {
+      const text = event.data.text();
+      if (text) {
+        payload.body = text;
+      }
+    }
+  }
+
+  const targetUrl = (payload.data && payload.data.url) || payload.url || '/dashboard';
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'Budget App', {
+      body: payload.body || '',
+      icon: payload.icon || '/icons/icon-192x192.png',
+      badge: payload.badge || '/icons/icon-192x192.png',
+      tag: payload.tag || 'budget-app-notification',
+      data: {
+        ...(payload.data || {}),
+        url: targetUrl,
+      },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl =
+    (event.notification && event.notification.data && event.notification.data.url) || '/dashboard';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      const targetAbsolute = new URL(targetUrl, self.location.origin).href;
+      for (const client of windowClients) {
+        if (client.url === targetAbsolute && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      for (const client of windowClients) {
+        if ('focus' in client) {
+          return client.focus().then((focused) => {
+            if (focused && 'navigate' in focused) {
+              return focused.navigate(targetAbsolute);
+            }
+            return focused;
+          });
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetAbsolute);
+      }
+      return undefined;
+    })
+  );
+});
+
+// Automatically re-subscribe when the browser rotates a PushSubscription endpoint
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      let applicationServerKey =
+        event.oldSubscription &&
+        event.oldSubscription.options &&
+        event.oldSubscription.options.applicationServerKey;
+
+      if (!applicationServerKey) {
+        try {
+          const cachedKey = await getPushState('vapidPublicKey');
+          if (typeof cachedKey === 'string' && cachedKey) {
+            applicationServerKey = urlBase64ToUint8Array(cachedKey);
+          }
+        } catch {
+          applicationServerKey = null;
+        }
+      }
+
+      if (!applicationServerKey || !self.registration || !self.registration.pushManager) {
+        return;
+      }
+
+      const newSubscription =
+        event.newSubscription ||
+        (await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        }));
+
+      const subscriptionJson = newSubscription.toJSON();
+      try {
+        const res = await fetch('/api/push/subscribe', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(subscriptionJson),
+        });
+        if (!res.ok) {
+          throw new Error(`Sync failed with status ${res.status}`);
+        }
+        await setPushState('lastEndpoint', newSubscription.endpoint);
+      } catch {
+        // Offline or transient error: persist in IndexedDB mutation_queue for Background Sync replay
+        await enqueueMutation({
+          url: '/api/push/subscribe',
+          method: 'POST',
+          body: subscriptionJson,
+          headers: { 'Content-Type': 'application/json' },
+          createdAt: Date.now(),
+          retries: 0,
+        });
+        if (self.registration && 'sync' in self.registration) {
+          try {
+            await self.registration.sync.register(SYNC_TAG);
+          } catch {
+            // Online event will replay if Background Sync is unavailable
+          }
+        }
+      }
+    })()
+  );
 });
 
 self.addEventListener('fetch', (event) => {

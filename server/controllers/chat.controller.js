@@ -1,4 +1,4 @@
-const llmService = require('../services/llm.service');
+const llmService = require('../services/ai/llm.service');
 
 // ============================================================================
 // CHAT CONTROLLER (LLM FINANCIAL ASSISTANT ENDPOINTS)

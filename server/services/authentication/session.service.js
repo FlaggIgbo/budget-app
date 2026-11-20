@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { createClient } = require('redis');
-const db = require('../models');
-const queueService = require('./queue.service');
+const db = require('../../models');
+const queueService = require('../jobs/queue.service');
 
 // ============================================================================
 // REDIS SESSION SERVICE

@@ -2,8 +2,9 @@ import { Injectable, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 
 export const OFFLINE_DB_NAME = 'budget-app-offline-db';
-export const OFFLINE_DB_VERSION = 1;
+export const OFFLINE_DB_VERSION = 2;
 export const MUTATION_STORE = 'mutation_queue';
+export const PUSH_STATE_STORE = 'push_state';
 export const OFFLINE_SYNC_TAG = 'budget-app-offline-queue';
 const MAX_RETRIES = 5;
 
@@ -167,6 +168,9 @@ export class OfflineQueueService {
             autoIncrement: true,
           });
           store.createIndex('by_createdAt', 'createdAt', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(PUSH_STATE_STORE)) {
+          db.createObjectStore(PUSH_STATE_STORE, { keyPath: 'key' });
         }
       };
       request.onsuccess = () => resolve(request.result);

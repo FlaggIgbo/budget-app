@@ -1,12 +1,14 @@
-const { getEnvConfig } = require('../config/env.config');
-const syncWorker = require('./sync.worker');
-const sentryService = require('./sentry.service');
+const { getEnvConfig } = require('../../config/env.config');
+const syncWorker = require('../banking/sync.worker');
+const sentryService = require('../infrastructure/sentry.service');
+const pushQueue = require('../../push_service/push.queue');
 
 // ============================================================================
 // RABBITMQ BALANCE & TRANSACTION SYNC QUEUE SERVICE
 // Processes bank balance & transaction sync jobs from two sources:
 //   1. High-priority login trigger (PRIORITY_HIGH = 10) when a user logs in
 //   2. Normal-priority daily CRON job (PRIORITY_NORMAL = 1) once a day
+// Dispatches follow-up notifications to the Push Notification microservice queue.
 // ============================================================================
 
 const SYNC_QUEUE_NAME = 'budget_app.bank_sync_jobs';
@@ -72,10 +74,34 @@ async function processNextSyncJob() {
   const job = pendingJobs.shift();
   try {
     const synced = await syncWorker.syncAllUserEnrollments(job.userId);
+    const syncedCount = Array.isArray(synced) ? synced.length : 0;
+
+    // Enqueue a push notification into the push microservice queue when bank accounts finish syncing
+    if (syncedCount > 0) {
+      try {
+        const dayKey = new Date().toISOString().slice(0, 10);
+        await pushQueue.enqueuePushNotificationJob(
+          job.userId,
+          {
+            title: 'Bank accounts synced',
+            body: `Updated balances and transactions across ${syncedCount} connected ${syncedCount === 1 ? 'bank' : 'banks'}.`,
+            url: '/dashboard',
+            tag: 'budget-app-bank-sync',
+          },
+          {
+            source: `sync:${job.source}`,
+            dedupeKey: `sync:${job.source}:${dayKey}`,
+          }
+        );
+      } catch {
+        // Non-fatal: bank sync still succeeded even if push enqueue failed
+      }
+    }
+
     return {
       ...job,
       status: 'completed',
-      syncedCount: Array.isArray(synced) ? synced.length : 0,
+      syncedCount,
     };
   } catch (err) {
     sentryService.captureException(err, {

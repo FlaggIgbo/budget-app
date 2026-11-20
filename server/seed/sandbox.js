@@ -1,7 +1,11 @@
 const db = require('../models');
 const { getEnvConfig } = require('../config/env.config');
-const { isSandboxMode, SANDBOX_PHONE, SANDBOX_OTP } = require('../services/otp.service');
-const secretsVault = require('../services/secrets.vault');
+const {
+  isSandboxMode,
+  SANDBOX_PHONE,
+  SANDBOX_OTP,
+} = require('../services/authentication/otp.service');
+const secretsVault = require('../services/banking/secrets.vault');
 
 const SANDBOX_EMAIL = 'alex@budgetapp.local';
 const SANDBOX_FIRST_NAME = 'Alex';

@@ -1,9 +1,9 @@
-const db = require('../models');
+const db = require('../../models');
 const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
 const syncWorker = require('./sync.worker');
 const disconnectHandler = require('./disconnect.handler');
-const emailService = require('./email.service');
+const emailService = require('../communications/email.service');
 
 // ============================================================================
 // BANK SERVICE (API SERVER BUSINESS LOGIC)

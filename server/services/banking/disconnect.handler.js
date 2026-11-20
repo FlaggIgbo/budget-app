@@ -1,4 +1,4 @@
-const db = require('../models');
+const db = require('../../models');
 const bankAdapter = require('./plaid.adapter');
 const secretsVault = require('./secrets.vault');
 

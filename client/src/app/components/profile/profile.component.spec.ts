@@ -1,16 +1,30 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { ProfileComponent } from './profile.component';
 import { UserService } from '../../services/user.service';
 import { WebAuthnService } from '../../services/webauthn.service';
+import { PushNotificationService } from '../../services/push-notification.service';
 
 describe('ProfileComponent', () => {
   let component: ProfileComponent;
   let fixture: ComponentFixture<ProfileComponent>;
   let userServiceMock: jasmine.SpyObj<UserService>;
   let webauthnMock: jasmine.SpyObj<WebAuthnService>;
+  let pushServiceMock: {
+    isSupported: ReturnType<typeof signal<boolean>>;
+    permission: ReturnType<typeof signal<NotificationPermission>>;
+    isSubscribed: ReturnType<typeof signal<boolean>>;
+    subscriptionCount: ReturnType<typeof signal<number>>;
+    loading: ReturnType<typeof signal<boolean>>;
+    error: ReturnType<typeof signal<string | null>>;
+    refreshStatus: jasmine.Spy;
+    subscribe: jasmine.Spy;
+    unsubscribe: jasmine.Spy;
+    sendTestNotification: jasmine.Spy;
+  };
 
   const mockPasskeyOptions = {
     challenge: 'profile-challenge',
@@ -121,6 +135,34 @@ describe('ProfileComponent', () => {
     webauthnMock.createPasskey.and.returnValue(Promise.resolve(mockCreatedCredential));
     webauthnMock.receiveOtp.and.returnValue(Promise.resolve(null));
 
+    pushServiceMock = {
+      isSupported: signal(true),
+      permission: signal<NotificationPermission>('default'),
+      isSubscribed: signal(false),
+      subscriptionCount: signal(0),
+      loading: signal(false),
+      error: signal<string | null>(null),
+      refreshStatus: jasmine.createSpy('refreshStatus').and.returnValue(Promise.resolve()),
+      subscribe: jasmine.createSpy('subscribe').and.callFake(async () => {
+        pushServiceMock.isSubscribed.set(true);
+        pushServiceMock.permission.set('granted');
+        pushServiceMock.subscriptionCount.set(1);
+        return true;
+      }),
+      unsubscribe: jasmine.createSpy('unsubscribe').and.callFake(async () => {
+        pushServiceMock.isSubscribed.set(false);
+        pushServiceMock.subscriptionCount.set(0);
+        return true;
+      }),
+      sendTestNotification: jasmine.createSpy('sendTestNotification').and.returnValue(
+        Promise.resolve({
+          ok: true,
+          jobId: 'push_1',
+          delivery: { status: 'completed', deliveredCount: 1, prunedCount: 0 },
+        })
+      ),
+    };
+
     await TestBed.configureTestingModule({
       imports: [ProfileComponent],
       providers: [
@@ -128,6 +170,7 @@ describe('ProfileComponent', () => {
         provideRouter([]),
         { provide: UserService, useValue: userServiceMock },
         { provide: WebAuthnService, useValue: webauthnMock },
+        { provide: PushNotificationService, useValue: pushServiceMock },
       ],
     }).compileComponents();
 
@@ -225,5 +268,27 @@ describe('ProfileComponent', () => {
 
     expect(webauthnMock.receiveOtp).toHaveBeenCalledWith('sms', jasmine.any(AbortSignal));
     expect(userServiceMock.verifyPhoneChangeOtp).toHaveBeenCalledWith('+15559876543', '123456');
+  });
+
+  it('should allow enabling, testing, and disabling native Web Push notifications', async () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(pushServiceMock.refreshStatus).toHaveBeenCalled();
+    expect(compiled.querySelector('.btn-enable-push')).toBeTruthy();
+
+    await component.enablePushNotifications();
+    fixture.detectChanges();
+
+    expect(pushServiceMock.subscribe).toHaveBeenCalled();
+    expect(compiled.querySelector('.btn-test-push')).toBeTruthy();
+    expect(compiled.querySelector('.btn-disable-push')).toBeTruthy();
+
+    await component.sendTestPush();
+    fixture.detectChanges();
+    expect(pushServiceMock.sendTestNotification).toHaveBeenCalled();
+
+    await component.disablePushNotifications();
+    fixture.detectChanges();
+    expect(pushServiceMock.unsubscribe).toHaveBeenCalled();
+    expect(compiled.querySelector('.btn-enable-push')).toBeTruthy();
   });
 });

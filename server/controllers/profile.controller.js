@@ -1,6 +1,6 @@
 const db = require('../models');
-const otpService = require('../services/otp.service');
-const passkeyService = require('../services/passkey.service');
+const otpService = require('../services/authentication/otp.service');
+const passkeyService = require('../services/authentication/passkey.service');
 
 // Get current user profile (includes name, email, phone, and passkey status; excludes secrets)
 exports.getProfile = async (req, res, next) => {

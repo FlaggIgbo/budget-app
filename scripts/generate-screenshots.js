@@ -248,7 +248,7 @@ async function applyDeterministicStyles(page) {
         transition-delay: 0s !important;
         caret-color: transparent !important;
       }
-      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      html, body, h1, h2, h3, h4, h5, h6, p, span:not(.material-icons), button, input, label, div,
       .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
       }
@@ -266,37 +266,23 @@ async function setupApiMockRoutes(page, options = {}) {
     hasPasskey = false,
     passkeyCreatedAt = hasPasskey ? '2026-11-15T12:00:00.000Z' : null,
     signupPasskeyOptionsStatus = 200,
+    pushSubscriptionCount = 0,
   } = options;
 
-  // Provide deterministic local sans-serif @font-face mappings without hanging networkidle in offline environments
-  await page.route('https://fonts.googleapis.com/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'text/css',
-      body: `
-        @font-face {
-          font-family: 'Inter';
-          font-style: normal;
-          font-weight: 300 800;
-          src: local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
-        }
-        @font-face {
-          font-family: 'Roboto';
-          font-style: normal;
-          font-weight: 300 800;
-          src: local('Roboto'), local('Inter'), local('-apple-system'), local('BlinkMacSystemFont'), local('SF Pro Text'), local('Segoe UI'), local('Arial');
-        }
-      `,
-    })
-  );
-  await page.route('https://fonts.gstatic.com/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'font/woff2', body: '' })
-  );
-
   await page.addInitScript(() => {
+    if (typeof Notification !== 'undefined') {
+      try {
+        Object.defineProperty(Notification, 'permission', {
+          configurable: true,
+          get: () => 'default',
+        });
+      } catch {
+        // Ignore if non-configurable
+      }
+    }
     const style = document.createElement('style');
     style.textContent = `
-      *, *::before, *::after, html, body, h1, h2, h3, h4, h5, h6, p, span, button, input, label, div,
+      html, body, h1, h2, h3, h4, h5, h6, p, span:not(.material-icons), button, input, label, div,
       .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
       }
@@ -561,6 +547,22 @@ async function setupApiMockRoutes(page, options = {}) {
             email: 'alex@example.com',
           },
         }),
+      });
+    }
+
+    if (pathname.endsWith('/api/push/vapid-public-key')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ configured: true, vapidPublicKey: 'BAECAwQFBgcICQoLDA0ODw' }),
+      });
+    }
+
+    if (pathname.endsWith('/api/push/subscriptions')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: pushSubscriptionCount, subscriptions: [] }),
       });
     }
 
@@ -892,13 +894,21 @@ async function generateScreenshots() {
     console.log('  ✓ components/profile-card-unlinked.png');
 
     // Component: Profile Passkey Card (Not set up / Add Passkey)
-    await profilePage.locator('.passkey-card').screenshot({
+    await profilePage.locator('.passkey-card:not(.push-card)').screenshot({
       path: path.join(COMPONENTS_DIR, 'profile-passkey-card.png'),
     });
     savedFiles.push('screenshots/components/profile-passkey-card.png');
     console.log('  ✓ components/profile-passkey-card.png');
 
-    // Page: Profile Page
+    // Component: Profile Push Notifications Card
+    await profilePage.locator('.push-card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'profile-push-card.png'),
+    });
+    savedFiles.push('screenshots/components/profile-push-card.png');
+    console.log('  ✓ components/profile-push-card.png');
+
+    // Page: Profile Page (scroll back to top so sticky toolbar stays aligned)
+    await profilePage.evaluate(() => window.scrollTo(0, 0));
     await profilePage.screenshot({
       path: path.join(PAGES_DIR, 'profile-page.png'),
       fullPage: true,

@@ -1,4 +1,4 @@
-const sessionService = require('../services/session.service');
+const sessionService = require('../services/authentication/session.service');
 
 // Check that the user is logged in by delegating session lookup to sessionService
 module.exports = async (req, res, next) => {

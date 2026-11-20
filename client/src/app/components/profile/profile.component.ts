@@ -13,6 +13,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { UserService, UserProfile } from '../../services/user.service';
 import { WebAuthnService } from '../../services/webauthn.service';
+import { PushNotificationService } from '../../services/push-notification.service';
 
 export type Profile = UserProfile;
 
@@ -357,6 +358,115 @@ export type Profile = UserProfile;
               <div class="error-banner">
                 <mat-icon>error_outline</mat-icon>
                 <span>{{ pkErr }}</span>
+              </div>
+            }
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card appearance="outlined" class="passkey-card push-card">
+          <div class="passkey-header">
+            <div class="passkey-icon-wrap">
+              <mat-icon>notifications_active</mat-icon>
+            </div>
+            <div class="passkey-title-wrap">
+              <div class="passkey-title-row">
+                <h2>Push Notifications</h2>
+                @if (!pushService.isSupported()) {
+                  <span class="passkey-badge passkey-badge-missing">Unsupported</span>
+                } @else if (pushService.isSubscribed()) {
+                  <span class="passkey-badge passkey-badge-active">
+                    <mat-icon>verified</mat-icon>
+                    Enabled
+                  </span>
+                } @else if (pushService.permission() === 'denied') {
+                  <span class="passkey-badge passkey-badge-missing">Blocked</span>
+                } @else {
+                  <span class="passkey-badge passkey-badge-missing">Off</span>
+                }
+              </div>
+              <p class="subtitle">
+                Get real-time alerts when bank balances and transactions sync across your devices
+              </p>
+            </div>
+          </div>
+
+          <mat-card-content class="passkey-body">
+            @if (!pushService.isSupported()) {
+              <div class="passkey-row">
+                <div class="passkey-meta">
+                  <span class="passkey-status-label">Not supported in this browser</span>
+                  <span class="passkey-status-detail">
+                    Install the PWA on a Push API-compatible browser to enable device notifications.
+                  </span>
+                </div>
+              </div>
+            } @else if (pushService.isSubscribed()) {
+              <div class="passkey-row">
+                <div class="passkey-meta">
+                  <span class="passkey-status-label">Notifications active on this device</span>
+                  <span class="passkey-status-detail">
+                    {{ pushService.subscriptionCount() }}
+                    {{ pushService.subscriptionCount() === 1 ? 'device' : 'devices' }} subscribed
+                  </span>
+                </div>
+                <div class="push-actions">
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    class="btn-test-push"
+                    (click)="sendTestPush()"
+                    [disabled]="pushService.loading()"
+                  >
+                    <mat-icon>send</mat-icon>
+                    Send Test
+                  </button>
+                  <button
+                    mat-stroked-button
+                    type="button"
+                    class="btn-delete-passkey btn-disable-push"
+                    (click)="disablePushNotifications()"
+                    [disabled]="pushService.loading()"
+                  >
+                    <mat-icon>notifications_off</mat-icon>
+                    {{ pushService.loading() ? 'Updating…' : 'Disable' }}
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="passkey-row">
+                <div class="passkey-meta">
+                  <span class="passkey-status-label">
+                    {{
+                      pushService.permission() === 'denied'
+                        ? 'Notifications blocked in browser'
+                        : 'Notifications turned off'
+                    }}
+                  </span>
+                  <span class="passkey-status-detail">
+                    @if (pushService.permission() === 'denied') {
+                      Allow notifications for this site in your browser settings, then try again.
+                    } @else {
+                      Subscribe this device using native Web Push to receive sync alerts.
+                    }
+                  </span>
+                </div>
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="btn-primary btn-enable-push"
+                  (click)="enablePushNotifications()"
+                  [disabled]="pushService.loading()"
+                >
+                  <mat-icon>notifications_active</mat-icon>
+                  {{ pushService.loading() ? 'Enabling…' : 'Enable Notifications' }}
+                </button>
+              </div>
+            }
+
+            @if (pushService.error(); as pushErr) {
+              <div class="error-banner">
+                <mat-icon>error_outline</mat-icon>
+                <span>{{ pushErr }}</span>
               </div>
             }
           </mat-card-content>
@@ -791,6 +901,18 @@ export type Profile = UserProfile;
       .btn-delete-passkey:hover:not([disabled]) {
         background: #fef2f2 !important;
       }
+      .push-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .btn-test-push {
+        border-color: #cbd5e1 !important;
+        color: #2563eb !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+      }
       .loading-wrap {
         padding: 2rem 1rem;
         text-align: center;
@@ -822,7 +944,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   constructor(
     private userService: UserService,
-    private webauthn: WebAuthnService
+    private webauthn: WebAuthnService,
+    public pushService: PushNotificationService
   ) {}
 
   ngOnDestroy() {
@@ -831,7 +954,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.userService.getProfile().subscribe({
-      next: (data) => this.profile.set(data),
+      next: (data) => {
+        this.profile.set(data);
+        void this.pushService.refreshStatus();
+      },
       error: () => this.error.set('Failed to load profile'),
     });
   }
@@ -1027,6 +1153,33 @@ export class ProfileComponent implements OnInit, OnDestroy {
         this.passkeyLoading.set(false);
       },
     });
+  }
+
+  // Enable native Web Push notifications on this device
+  async enablePushNotifications() {
+    this.successMessage.set(null);
+    const ok = await this.pushService.subscribe();
+    if (ok) {
+      this.successMessage.set('Push notifications enabled for this device.');
+    }
+  }
+
+  // Disable native Web Push notifications on this device
+  async disablePushNotifications() {
+    this.successMessage.set(null);
+    const ok = await this.pushService.unsubscribe();
+    if (ok) {
+      this.successMessage.set('Push notifications disabled for this device.');
+    }
+  }
+
+  // Dispatch a test Web Push notification via RabbitMQ
+  async sendTestPush() {
+    this.successMessage.set(null);
+    const res = await this.pushService.sendTestNotification();
+    if (res?.ok) {
+      this.successMessage.set('Test push notification queued and dispatched.');
+    }
   }
 
   // Log user out

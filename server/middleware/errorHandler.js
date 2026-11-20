@@ -1,4 +1,4 @@
-const sentryService = require('../services/sentry.service');
+const sentryService = require('../services/infrastructure/sentry.service');
 
 // Catch any errors, report to Sentry stub, and send error response
 const errorHandler = (err, req, res, _next) => {

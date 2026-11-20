@@ -35,6 +35,7 @@ db.User = require('./User')(sequelize);
 db.Enrollment = require('./Enrollment')(sequelize);
 db.Account = require('./Account')(sequelize);
 db.Transaction = require('./Transaction')(sequelize);
+db.PushSubscription = require('./PushSubscription')(sequelize);
 
 // Link models together with cascade delete on disconnect
 db.User.hasMany(db.Enrollment, { foreignKey: 'userId', onDelete: 'CASCADE' });
@@ -45,6 +46,9 @@ db.Account.belongsTo(db.User, { foreignKey: 'userId' });
 
 db.User.hasMany(db.Transaction, { foreignKey: 'userId', onDelete: 'CASCADE' });
 db.Transaction.belongsTo(db.User, { foreignKey: 'userId' });
+
+db.User.hasMany(db.PushSubscription, { foreignKey: 'userId', onDelete: 'CASCADE' });
+db.PushSubscription.belongsTo(db.User, { foreignKey: 'userId' });
 
 db.Enrollment.hasMany(db.Account, {
   foreignKey: 'enrollmentId',

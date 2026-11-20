@@ -84,6 +84,8 @@ function getEnvConfig() {
     cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID || '',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     sentryDsn: process.env.SENTRY_DSN || '',
+    vapidSubject: process.env.VAPID_SUBJECT || 'mailto:support@budgetapp.local',
+    vapidConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
   };
 }
 

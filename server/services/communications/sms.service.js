@@ -14,15 +14,18 @@ function createTwilioClient() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
 
-  // TODO: Install and initialize the official Twilio SDK client (`const twilio = require('twilio')`)
-  // and return `twilio(accountSid, authToken)` once your Twilio credentials are ready.
+  // TODO: Do NOT install the third-party `twilio` SDK — call Twilio's HTTPS Messages REST API
+  // directly using native `fetch()`, `URLSearchParams`, and HTTP Basic Auth (`Buffer.from(...)`):
+  //   POST https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json
+  //   Headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+  //              'Content-Type': 'application/x-www-form-urlencoded' }
+  //   Body: new URLSearchParams({ To: to, From: from, Body: body })
   return {
     accountSid,
     authToken,
     messages: {
       create: async ({ to, from, body }) => {
-        // TODO: Replace this stub with the live Twilio Messages API request:
-        // return await client.messages.create({ to, from, body });
+        // TODO: Replace this stub with the live native `fetch()` call to Twilio's HTTPS Messages API above.
         return { sid: 'SM_STUB_TODO', to, from, body };
       },
     },

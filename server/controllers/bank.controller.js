@@ -1,4 +1,4 @@
-const bankService = require('../services/bank.service');
+const bankService = require('../services/banking/bank.service');
 
 // ============================================================================
 // BANK CONTROLLER (API SERVER ENDPOINTS)

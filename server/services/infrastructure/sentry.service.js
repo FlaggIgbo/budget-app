@@ -1,4 +1,4 @@
-const { getEnvConfig } = require('../config/env.config');
+const { getEnvConfig } = require('../../config/env.config');
 
 // ============================================================================
 // SENTRY ERROR & ISSUE LOGGING SERVICE (STUB)

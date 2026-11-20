@@ -2,7 +2,7 @@ const { DataTypes } = require('sequelize');
 const app = require('./app');
 const db = require('./models');
 const { seedSandboxUser } = require('./seed/sandbox');
-const { startDailySyncScheduler } = require('./services/cron.scheduler');
+const { startDailySyncScheduler } = require('./services/jobs/cron.scheduler');
 
 // Ensure existing users tables gain passkey columns cleanly without destructive sync
 async function ensurePasskeyColumns() {

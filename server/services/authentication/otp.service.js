@@ -1,9 +1,9 @@
 const crypto = require('crypto');
 const { createClient } = require('redis');
-const db = require('../models');
-const { getAppEnvironment } = require('../config/env.config');
-const emailService = require('./email.service');
-const smsService = require('./sms.service');
+const db = require('../../models');
+const { getAppEnvironment } = require('../../config/env.config');
+const emailService = require('../communications/email.service');
+const smsService = require('../communications/sms.service');
 const sessionService = require('./session.service');
 const passkeyService = require('./passkey.service');
 

@@ -2,7 +2,7 @@
 const { describe, it, before, afterEach } = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
-const request = require('supertest');
+const request = require('./helpers/httpClient');
 
 // Minimal CBOR encoder for constructing genuine WebAuthn attestationObjects in tests
 function encodeCborHeader(majorType, length) {
@@ -189,14 +189,14 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
     process.env.PLAID_ENV = 'sandbox';
     app = require('../app');
     db = require('../models');
-    emailService = require('../services/email.service');
-    smsService = require('../services/sms.service');
-    otpService = require('../services/otp.service');
-    passkeyService = require('../services/passkey.service');
-    sessionService = require('../services/session.service');
-    passwordService = require('../services/password.service');
-    queueService = require('../services/queue.service');
-    bankService = require('../services/bank.service');
+    emailService = require('../services/communications/email.service');
+    smsService = require('../services/communications/sms.service');
+    otpService = require('../services/authentication/otp.service');
+    passkeyService = require('../services/authentication/passkey.service');
+    sessionService = require('../services/authentication/session.service');
+    passwordService = require('../services/authentication/password.service');
+    queueService = require('../services/jobs/queue.service');
+    bankService = require('../services/banking/bank.service');
 
     // Mock email sender (used for signup email OTP & profile email change OTP)
     emailService.setTransporter({

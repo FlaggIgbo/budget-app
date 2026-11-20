@@ -1,36 +1,83 @@
+const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// Load local .env file via native Node.js process.loadEnvFile() when present
+const envFilePath = path.join(__dirname, '.env');
+if (typeof process.loadEnvFile === 'function' && fs.existsSync(envFilePath)) {
+  process.loadEnvFile(envFilePath);
+}
+
 const express = require('express');
-const cors = require('cors');
-const cookieParser = require('cookie-parser');
 const { getEnvConfig } = require('./config/env.config');
-const { isSandboxMode } = require('./services/otp.service');
-const sentryService = require('./services/sentry.service');
+const { isSandboxMode } = require('./services/authentication/otp.service');
+const { pushService } = require('./push_service');
+const sentryService = require('./services/infrastructure/sentry.service');
 
 // Initialize Sentry error logging stub
 sentryService.initSentry();
 
 const app = express();
 
-// Parse cookies and request bodies
-app.use(cookieParser());
+// Native cookie header parser (replaces cookie-parser)
+app.use((req, _res, next) => {
+  req.cookies = {};
+  const rawCookie = req.headers.cookie;
+  if (rawCookie) {
+    for (const pair of rawCookie.split(';')) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx <= 0) {
+        continue;
+      }
+      const key = pair.slice(0, eqIdx).trim();
+      const rawVal = pair.slice(eqIdx + 1).trim();
+      if (!key) {
+        continue;
+      }
+      try {
+        req.cookies[key] = decodeURIComponent(rawVal);
+      } catch {
+        req.cookies[key] = rawVal;
+      }
+    }
+  }
+  next();
+});
+
+// Parse JSON and URL-encoded request bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Enable CORS so the frontend can talk to the backend
+// Native CORS middleware (replaces cors package)
 let allowedOrigins = ['http://localhost:4200', 'http://localhost:3000'];
 if (process.env.CORS_ORIGIN) {
-  const rawOrigins = process.env.CORS_ORIGIN.split(',');
-  allowedOrigins = [];
-  for (let i = 0; i < rawOrigins.length; i++) {
-    allowedOrigins.push(rawOrigins[i].trim());
-  }
+  allowedOrigins = process.env.CORS_ORIGIN.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
 
-// Get Plaid & environment public configuration
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      req.headers['access-control-request-headers'] || 'Content-Type, Authorization'
+    );
+    return res.status(204).end();
+  }
+
+  return next();
+});
+
+// Get Plaid, Web Push & environment public configuration
 app.get('/api/config', (req, res) => {
   const envConfig = getEnvConfig();
+  const vapidConfig = pushService.getVapidConfig();
   const config = {
     environment: envConfig.appEnv,
     plaidConfigured: Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET),
@@ -39,6 +86,8 @@ app.get('/api/config', (req, res) => {
       ? envConfig.allowedPlaidEnvsInDev
       : ['production'],
     storageProvider: envConfig.storageProvider,
+    pushConfigured: vapidConfig.configured,
+    vapidPublicKey: vapidConfig.publicKey,
   };
 
   // Provide development test phone and OTP ONLY outside production
@@ -59,6 +108,7 @@ require('./routes/auth.routes')(app);
 require('./routes/bank.routes')(app);
 require('./routes/profile.routes')(app);
 require('./routes/chat.routes')(app);
+require('./routes/push_service.routes')(app);
 
 // Global error handler
 app.use(require('./middleware/errorHandler'));

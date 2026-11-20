@@ -1,7 +1,7 @@
 // Health, Config, and Environment (Development vs. Production) API tests
 const { describe, it, before, afterEach } = require('node:test');
 const assert = require('node:assert');
-const request = require('supertest');
+const request = require('./helpers/httpClient');
 
 describe('Health & Config API', () => {
   let app;
