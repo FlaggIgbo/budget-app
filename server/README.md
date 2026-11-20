@@ -1,8 +1,10 @@
 # Budget App API
 
-Express + Node.js backend connecting to PostgreSQL and Plaid.
+Node.js + Express backend for the Budget App, backed by PostgreSQL (Sequelize), Redis, RabbitMQ, and S3-compatible object storage (MinIO locally, Cloudflare R2 in production).
 
 ## Setup
+
+Ensure local infrastructure is running (`npm run infra:up` from the repository root), then:
 
 ```bash
 npm install
@@ -10,20 +12,23 @@ cp .env.example .env
 npm run dev
 ```
 
-API runs on port `4000`.
+The API runs on `http://localhost:4000` by default. See `.env.example` for all environment variables and optional integrations (Plaid, Gemini, SMTP, Twilio, Web Push VAPID keys, Sentry).
 
-## API Endpoints
+## Scripts
 
-- `GET /api/health` — Check server status
-- `GET /api/config` — Get Plaid settings
-- `POST /api/otp/request` — Send login code
-- `POST /api/otp/verify` — Verify code and log in
-- `POST /api/auth/logout` — Log out
-- `GET /api/auth/me` — Get current user
-- `GET /api/profile` — Get profile info
-- `POST /api/bank/link-token` — Create Plaid Link token
-- `GET /api/bank/net-worth` — Calculate net worth
-- `GET /api/bank/dashboard-summary` — Get monthly summary & stats
-- `GET /api/bank/enrollments` — List connected banks
-- `POST /api/bank/exchange-token` — Exchange Plaid public token & save bank connection
-- `DELETE /api/bank/enrollments/:id` — Disconnect bank
+```bash
+npm run dev     # Start server with file watching
+npm start       # Start server
+npm test        # Run Node test suite
+```
+
+## API Overview
+
+Routes are organized by domain under `routes/` (plus public runtime config at `GET /api/config` in `app.js`):
+
+- **System** (`routes/index.routes.js`) — Health check and service status
+- **Authentication** (`routes/auth.routes.js`) — Phone/email OTP, signup, sessions, and WebAuthn passkeys
+- **Profile** (`routes/profile.routes.js`) — User profile details, contact updates, and passkey management
+- **Banking** (`routes/bank.routes.js`) — Plaid linking, connected accounts, transactions, and financial summaries
+- **AI Chat** (`routes/chat.routes.js`) — Financial assistant conversations
+- **Push Notifications** (`routes/push_service.routes.js`) — Web Push subscriptions and notifications

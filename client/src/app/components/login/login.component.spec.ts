@@ -110,6 +110,18 @@ describe('LoginComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('#phone')).toBeTruthy();
     expect(compiled.querySelector('label[for="phone"]')?.textContent).toContain('Phone number');
+    expect(compiled.querySelector('label label')).toBeNull();
+  });
+
+  it('should use numeric inputmode and avoid nested labels on the SMS OTP field', () => {
+    component.step.set('otp');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const otpInput = compiled.querySelector('#otp');
+    expect(otpInput?.getAttribute('inputmode')).toBe('numeric');
+    expect(otpInput?.getAttribute('autocomplete')).toBe('one-time-code');
+    expect(compiled.querySelector('label label')).toBeNull();
   });
 
   it('should show development test account banner in non-production mode', () => {

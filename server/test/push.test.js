@@ -148,16 +148,88 @@ describe('Web Push Cryptography (RFC 8291 aes128gcm & RFC 8292 VAPID ES256)', ()
     );
     assert.ok(
       pushService.validatePushSubscriptionPayload({
-        endpoint: 'https://push.example/1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/1',
         keys: { p256dh: 'short', auth: valid.json.keys.auth },
       }).error
     );
     assert.ok(
       pushService.validatePushSubscriptionPayload({
-        endpoint: 'https://push.example/1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/1',
         keys: { p256dh: valid.json.keys.p256dh, auth: 'short' },
       }).error
     );
+  });
+
+  it('blocks SSRF push endpoints (non-HTTPS, IPs, metadata, internal/untrusted hosts, non-443 ports, credentials)', () => {
+    const base = createMockBrowserPushSubscription().json;
+
+    // Legitimate browser push providers are allowed
+    const allowedEndpoints = [
+      'https://fcm.googleapis.com/fcm/send/sub_1',
+      'https://android.googleapis.com/gcm/send/sub_2',
+      'https://updates.push.services.mozilla.com/wpush/v2/sub_3',
+      'https://web.push.apple.com/Q123456',
+      'https://wns2-bl2p.notify.windows.com/w/?token=abc',
+      'https://eu-01.push.samsungosp.com/sub_4',
+    ];
+    for (const endpoint of allowedEndpoints) {
+      const res = pushService.validatePushSubscriptionPayload({ ...base, endpoint });
+      assert.strictEqual(res.error, undefined, `expected ${endpoint} to be allowed`);
+    }
+
+    // SSRF and untrusted targets must be rejected
+    const blockedEndpoints = [
+      'http://fcm.googleapis.com/fcm/send/sub_1',
+      'http://localhost:4000/api/health',
+      'http://127.0.0.1:6379/',
+      'https://127.0.0.1/push',
+      'https://[::1]/push',
+      'https://169.254.169.254/latest/meta-data/',
+      'https://2130706433/push',
+      'https://10.0.0.5/internal',
+      'https://192.168.1.10/admin',
+      'https://metadata.google.internal/computeMetadata/v1/',
+      'https://evil.example/push',
+      'https://fcm.googleapis.com.evil.com/fcm/send/sub_1',
+      'https://evilpush.apple.com/sub_1',
+      'https://fcm.googleapis.com:8443/fcm/send/sub_1',
+      'https://user:pass@fcm.googleapis.com/fcm/send/sub_1',
+    ];
+    for (const endpoint of blockedEndpoints) {
+      const res = pushService.validatePushSubscriptionPayload({ ...base, endpoint });
+      assert.ok(res.error, `expected ${endpoint} to be rejected`);
+    }
+  });
+
+  it('classifies private, loopback, link-local, metadata, and IPv4-mapped IPv6 addresses as disallowed', () => {
+    const disallowed = [
+      '0.0.0.0',
+      '10.0.0.1',
+      '100.64.0.1',
+      '127.0.0.1',
+      '169.254.169.254',
+      '172.16.0.1',
+      '172.31.255.255',
+      '192.168.1.1',
+      '224.0.0.1',
+      '255.255.255.255',
+      '::',
+      '::1',
+      '::ffff:127.0.0.1',
+      '::ffff:169.254.169.254',
+      'fc00::1',
+      'fd12:3456::1',
+      'fe80::1',
+      'ff02::1',
+    ];
+    for (const ip of disallowed) {
+      assert.strictEqual(pushService.isPrivateOrReservedIp(ip), true, `expected ${ip} blocked`);
+    }
+
+    const allowed = ['142.250.190.46', '1.1.1.1', '2607:f8b0:4005:80b::200e'];
+    for (const ip of allowed) {
+      assert.strictEqual(pushService.isPrivateOrReservedIp(ip), false, `expected ${ip} allowed`);
+    }
   });
 });
 
@@ -196,6 +268,7 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     pushWorker.clearMemoryDedupeStore();
     pushWorker.setClient(null);
     pushService.setFetchImpl(null);
+    pushService.setDnsLookupImpl(null);
     sentryService.clearCapturedEvents();
 
     db.PushSubscription.upsert = async (data) => {
@@ -266,6 +339,7 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     db.PushSubscription.destroy = originalDestroy;
     db.PushSubscription.update = originalUpdate;
     pushService.setFetchImpl(null);
+    pushService.setDnsLookupImpl(null);
     pushWorker.setClient(null);
     pushQueue.clearPendingPushJobs();
   });
@@ -450,5 +524,78 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     assert.strictEqual(unsubRes.out.body.ok, true);
     assert.strictEqual(unsubRes.out.body.removed, true);
     assert.strictEqual(unsubRes.out.body.count, 0);
+  });
+
+  it('enforces SSRF checks at delivery time (tampered endpoints, private DNS resolution, redirect blocking, and timeout)', async () => {
+    let fetchCalled = false;
+    let lastFetchInit = null;
+    pushService.setFetchImpl(async (_url, init) => {
+      fetchCalled = true;
+      lastFetchInit = init;
+      return { status: 201 };
+    });
+
+    // 1. Tampered stored endpoint pointing to cloud metadata is rejected before fetch()
+    const metadataSub = createMockBrowserPushSubscription(
+      'https://169.254.169.254/latest/meta-data/'
+    );
+    const tamperedResult = await pushService.sendToSubscription(
+      {
+        endpoint: metadataSub.json.endpoint,
+        p256dh: metadataSub.json.keys.p256dh,
+        auth: metadataSub.json.keys.auth,
+      },
+      { title: 'Test', body: 'Blocked' }
+    );
+    assert.strictEqual(tamperedResult.status, 'failed');
+    assert.strictEqual(fetchCalled, false);
+
+    // 2. DNS rebinding / private IP resolution on an allowlisted hostname is blocked permanently
+    const validSub = createMockBrowserPushSubscription('https://fcm.googleapis.com/fcm/send/sub_1');
+    pushService.setDnsLookupImpl(async () => [
+      { address: '142.250.190.46', family: 4 },
+      { address: '127.0.0.1', family: 4 },
+    ]);
+    const dnsBlockedResult = await pushService.sendToSubscription(
+      {
+        endpoint: validSub.json.endpoint,
+        p256dh: validSub.json.keys.p256dh,
+        auth: validSub.json.keys.auth,
+      },
+      { title: 'Test', body: 'DNS Rebind Blocked' }
+    );
+    assert.strictEqual(dnsBlockedResult.status, 'failed');
+    assert.match(dnsBlockedResult.error, /disallowed IP/i);
+    assert.strictEqual(fetchCalled, false);
+
+    // 3. Public DNS resolution succeeds and fetch() enforces redirect: 'error' + timeout signal
+    pushService.setDnsLookupImpl(async () => [{ address: '142.250.190.46', family: 4 }]);
+    const okResult = await pushService.sendToSubscription(
+      {
+        endpoint: validSub.json.endpoint,
+        p256dh: validSub.json.keys.p256dh,
+        auth: validSub.json.keys.auth,
+      },
+      { title: 'Test', body: 'Allowed' }
+    );
+    assert.strictEqual(okResult.status, 'delivered');
+    assert.strictEqual(fetchCalled, true);
+    assert.strictEqual(lastFetchInit.redirect, 'error');
+    assert.ok(lastFetchInit.signal instanceof AbortSignal);
+
+    // 4. Disallowed redirect error from fetch() is treated as permanent failure (not retried)
+    pushService.setFetchImpl(async () => {
+      throw new TypeError('unexpected redirect');
+    });
+    const redirectResult = await pushService.sendToSubscription(
+      {
+        endpoint: validSub.json.endpoint,
+        p256dh: validSub.json.keys.p256dh,
+        auth: validSub.json.keys.auth,
+      },
+      { title: 'Test', body: 'Redirect Blocked' }
+    );
+    assert.strictEqual(redirectResult.status, 'failed');
+    assert.match(redirectResult.error, /redirect/i);
   });
 });

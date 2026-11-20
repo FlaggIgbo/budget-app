@@ -130,6 +130,18 @@ describe('SignupComponent', () => {
     expect(compiled.querySelector('#firstName')).toBeTruthy();
     expect(compiled.querySelector('#lastName')).toBeTruthy();
     expect(compiled.querySelector('#email')).toBeTruthy();
+    expect(compiled.querySelector('label label')).toBeNull();
+  });
+
+  it('should use numeric inputmode and avoid nested labels on the email OTP field', () => {
+    component.step.set('email-otp');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const otpInput = compiled.querySelector('#emailOtp');
+    expect(otpInput?.getAttribute('inputmode')).toBe('numeric');
+    expect(otpInput?.getAttribute('autocomplete')).toBe('one-time-code');
+    expect(compiled.querySelector('label label')).toBeNull();
   });
 
   it('should require passkey creation after email OTP verification and navigate to /dashboard on success', async () => {

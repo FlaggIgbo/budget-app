@@ -74,7 +74,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
               <form (ngSubmit)="sendEmailOtp()" class="form">
                 <div class="name-row">
                   <mat-form-field appearance="outline">
-                    <mat-label><label for="firstName">First name</label></mat-label>
+                    <mat-label>First name</mat-label>
                     <mat-icon matPrefix>badge</mat-icon>
                     <input
                       matInput
@@ -89,7 +89,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
                   </mat-form-field>
 
                   <mat-form-field appearance="outline">
-                    <mat-label><label for="lastName">Last name</label></mat-label>
+                    <mat-label>Last name</mat-label>
                     <input
                       matInput
                       id="lastName"
@@ -104,7 +104,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
                 </div>
 
                 <mat-form-field appearance="outline">
-                  <mat-label><label for="email">Email address</label></mat-label>
+                  <mat-label>Email address</mat-label>
                   <mat-icon matPrefix>mail</mat-icon>
                   <input
                     matInput
@@ -138,7 +138,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
             } @else if (step() === 'email-otp') {
               <form (ngSubmit)="verifyEmailOtp()" class="form">
                 <mat-form-field appearance="outline">
-                  <mat-label><label for="emailOtp">Email verification code</label></mat-label>
+                  <mat-label>Email verification code</mat-label>
                   <mat-icon matPrefix>lock</mat-icon>
                   <input
                     matInput
@@ -150,6 +150,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
                     [placeholder]="sandboxOtp() ?? '123456'"
                     maxlength="6"
                     autocomplete="one-time-code"
+                    inputmode="numeric"
                     required
                   />
                 </mat-form-field>

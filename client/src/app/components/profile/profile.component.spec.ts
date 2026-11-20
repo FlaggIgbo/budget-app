@@ -220,6 +220,13 @@ describe('ProfileComponent', () => {
     expect(userServiceMock.requestEmailChangeOtp).toHaveBeenCalledWith('newalex@example.com');
     expect(component.editStep()).toBe('otp');
 
+    fixture.detectChanges();
+    const otpInput = (fixture.nativeElement as HTMLElement).querySelector(
+      'input[name="contactOtpCode"]'
+    );
+    expect(otpInput?.getAttribute('inputmode')).toBe('numeric');
+    expect(otpInput?.getAttribute('autocomplete')).toBe('one-time-code');
+
     component.contactOtpCode = '123456';
     component.verifyContactOtp();
 

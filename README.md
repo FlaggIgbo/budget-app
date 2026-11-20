@@ -1,43 +1,43 @@
 # Budget App
 
-A simple budgeting app to track your net worth, income, expenses, and linked bank accounts.
+A personal budgeting web application for tracking net worth, cash flow, spending, and linked bank accounts.
 
 ## Features
 
-- **Net Worth** — See total assets, liabilities, and overall net worth.
-- **Cash Flow** — Monthly income vs. expenses chart and quick statistics.
-- **Spending by Category** — Visual breakdown of expenses for the current month.
-- **Bank Accounts** — Link and disconnect bank accounts via Plaid (supports `sandbox` and `development` in localhost dev, and `production` in live).
-- **Phone OTP Login & Redis 1h Sessions** — Phone number + SMS verification code login with 1-hour session tokens stored in Redis, plus verified email linking on your Profile for personal finance summaries.
-- **Priority RabbitMQ Sync Queue & Web Push Notifications** — Enqueues high-priority balance/transaction sync jobs when a user logs in and normal-priority jobs from a daily CRON scheduler, plus asynchronous Web Push delivery (`budget_app.push_notifications` + DLQ) backed by durable PostgreSQL `push_subscriptions` with automatic 404/410 self-healing cleanup and native MDN Push API / IndexedDB support.
-- **AI Financial Assistant (`/chat`)** — Ask budgeting and cash-flow questions grounded in your PostgreSQL financial data and bank statements stored in MinIO / Cloudflare R2 (`GEMINI_API_KEY`).
+- **Net Worth & Cash Flow** — Track assets, liabilities, net worth, monthly income vs. expenses, and category spending breakdowns.
+- **Bank Accounts** — Connect and manage bank accounts via Plaid with background balance and transaction syncing.
+- **Authentication & Profile** — Phone and email OTP verification, WebAuthn passkeys, session management, and profile contact updates.
+- **PWA, Offline Queue & Push Notifications** — Installable progressive web app with offline action queueing and Web Push notifications.
+- **AI Financial Assistant** — Chat interface for budgeting and cash-flow questions grounded in your account data and bank statements.
 
 ## Tech Stack
 
-- **Frontend**: Angular 19 + Angular Material (Material 3) + Installable PWA (native MDN Push API, WebAuthn Passkeys, WebOTP, IndexedDB offline queue)
+- **Frontend**: Angular + Angular Material (PWA)
 - **Backend**: Node.js + Express
-- **Database**: PostgreSQL (via Sequelize ORM — users, passkeys, enrollments, accounts, transactions, push subscriptions)
-- **Session & OTP Store**: Redis (5-min OTP TTL, 1-hour Session TTL, push deduplication)
-- **Job Queue**: RabbitMQ (Priority Queue for login-triggered & daily CRON sync jobs, plus Web Push notification delivery & DLQ)
-- **Object Storage**: MinIO (local S3-compatible dev cluster) / Cloudflare R2 (production bank statements)
-- **Bank Integration**: Plaid (Plaid Link + REST API)
-- **Observability**: Sentry error logging stubs (`SENTRY_DSN`)
+- **Database**: PostgreSQL (Sequelize ORM)
+- **Cache & Sessions**: Redis
+- **Background Jobs**: RabbitMQ
+- **Object Storage**: MinIO (local dev) / Cloudflare R2 (production)
+- **Integrations**: Plaid (banking), Gemini (AI chat), Web Push, optional Sentry error tracking
+
+## Project Structure
+
+- [`client/`](./client/README.md) — Angular frontend application
+- [`server/`](./server/README.md) — Express REST API, background workers, and database models
+- [`screenshots/`](./screenshots/README.md) — Playwright visual regression baselines
 
 ## Quick Start
 
-### 1. Start Local Infrastructure (PostgreSQL, Redis, RabbitMQ, MinIO)
+### 1. Start Local Infrastructure
+
+Starts PostgreSQL, Redis, RabbitMQ, and MinIO via Docker Compose:
 
 ```bash
 npm run infra:up
 # or: docker compose up -d
 ```
 
-Services started:
-- **PostgreSQL**: `localhost:5432` (`postgres:postgres`, DB: `budget_app`)
-- **Redis**: `localhost:6379` (OTP codes & 1-hour auth session tokens)
-- **RabbitMQ**: `localhost:5672` (AMQP) / `http://localhost:15672` (Management UI: `guest` / `guest`)
-- **MinIO S3 API**: `http://localhost:9000` (Bucket: `budget-statements`)
-- **MinIO Web Console**: `http://localhost:9001` (`minioadmin` / `minioadmin`)
+See `docker-compose.yml` for local ports and default dev credentials.
 
 ### 2. Start the Backend API
 
@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-API runs at `http://localhost:4000`.
+API runs at `http://localhost:4000`. See `server/.env.example` for available configuration options.
 
 ### 3. Start the Frontend
 
@@ -62,20 +62,20 @@ App runs at `http://localhost:4200`.
 
 ## Test Login (Sandbox)
 
-Use these test credentials on the login page:
+In local development mode, use these test credentials on the login page:
 
 - **Phone**: `+15551234567`
 - **Code**: `123456`
 
-## Testing, Linting & Screenshot Automation
+## Common Commands
 
-Run all checks from the root directory:
+Run from the repository root:
 
 ```bash
 npm test              # Run server and client unit tests
-npm run test:e2e      # Run Playwright end-to-end browser flow (saves video recording)
-npm run screenshots   # Regenerate component and page visual screenshot baselines
-npm run lint          # Check code style
+npm run test:e2e      # Run Playwright end-to-end browser flow
+npm run screenshots   # Regenerate component and page screenshot baselines
+npm run lint          # Lint server and client code
 npm run format        # Format files with Prettier
 ```
 

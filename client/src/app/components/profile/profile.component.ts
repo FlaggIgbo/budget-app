@@ -242,6 +242,7 @@ export type Profile = UserProfile;
                       placeholder="123456"
                       maxlength="6"
                       autocomplete="one-time-code"
+                      inputmode="numeric"
                       required
                     />
                   </mat-form-field>

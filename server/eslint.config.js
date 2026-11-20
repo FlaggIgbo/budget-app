@@ -17,6 +17,7 @@ module.exports = [
         Buffer: 'readonly',
         console: 'readonly',
         fetch: 'readonly',
+        AbortSignal: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
       },

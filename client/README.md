@@ -1,6 +1,6 @@
 # Budget App Client
 
-Angular 19 + Angular Material (Material 3) frontend for the Budget App.
+Angular + Angular Material progressive web application (PWA) frontend for the Budget App.
 
 ## Setup
 
@@ -9,10 +9,13 @@ npm install
 npm start
 ```
 
-App runs at `http://localhost:4200` and proxies `/api` calls to `http://localhost:4000`.
+The dev server runs at `http://localhost:4200` and proxies `/api` requests to `http://localhost:4000` (configured in `proxy.conf.json`).
 
-## Testing
+## Scripts
 
 ```bash
-npm test
+npm start       # Start development server
+npm run build   # Build production bundle
+npm test        # Run unit tests (or `npm run test:client` from repo root for headless CI mode)
+npm run lint    # Lint client source files
 ```

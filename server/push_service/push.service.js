@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const dns = require('dns');
+const net = require('net');
 const db = require('../models');
 const { getEnvConfig } = require('../config/env.config');
 const sentryService = require('../services/infrastructure/sentry.service');
@@ -13,9 +15,22 @@ const sentryService = require('../services/infrastructure/sentry.service');
 const DEFAULT_VAPID_SUBJECT = 'mailto:support@budgetapp.local';
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const RECORD_SIZE = 4096;
+const PUSH_REQUEST_TIMEOUT_MS = 10_000;
+
+// Allowlist of standard browser Web Push service hosts (SSRF protection)
+const DEFAULT_ALLOWED_PUSH_HOSTS = [
+  'fcm.googleapis.com',
+  'android.googleapis.com',
+  'updates.push.services.mozilla.com',
+  '*.push.services.mozilla.com',
+  '*.push.apple.com',
+  '*.notify.windows.com',
+  '*.push.samsungosp.com',
+];
 
 let ephemeralVapidKeys = null;
 let customFetchImpl = null;
+let customDnsLookupImpl = null;
 
 function toBase64Url(input) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
@@ -96,33 +111,293 @@ function setFetchImpl(fn) {
   customFetchImpl = fn;
 }
 
+function setDnsLookupImpl(fn) {
+  customDnsLookupImpl = fn;
+}
+
+// ============================================================================
+// SSRF PROTECTION FOR USER-SUPPLIED WEB PUSH ENDPOINTS
+// ============================================================================
+
+function getAllowedPushHosts() {
+  const extra = (process.env.PUSH_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase().replace(/\.$/, ''))
+    .filter(Boolean);
+  return [...DEFAULT_ALLOWED_PUSH_HOSTS, ...extra];
+}
+
+function isAllowedPushHostname(hostname) {
+  const host = (hostname || '').toLowerCase().replace(/\.$/, '');
+  if (!host) {
+    return false;
+  }
+
+  // Block raw IP literals and local/internal hostnames unconditionally
+  if (
+    net.isIP(host.replace(/^\[|\]$/g, '')) !== 0 ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return false;
+  }
+
+  const allowedPatterns = getAllowedPushHosts();
+  for (const pattern of allowedPatterns) {
+    if (pattern.startsWith('*.')) {
+      const suffix = pattern.slice(1); // e.g. ".push.apple.com"
+      if (host.endsWith(suffix) && host.length > suffix.length) {
+        return true;
+      }
+    } else if (host === pattern) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function ipv4ToUint32(ip) {
+  const parts = ip.split('.');
+  if (parts.length !== 4) {
+    return null;
+  }
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) {
+      return null;
+    }
+    const octet = Number(part);
+    if (octet < 0 || octet > 255) {
+      return null;
+    }
+    value = ((value << 8) | octet) >>> 0;
+  }
+  return value;
+}
+
+function isPrivateOrReservedIpv4(ip) {
+  const num = ipv4ToUint32(ip);
+  if (num === null) {
+    return true;
+  }
+
+  const ranges = [
+    [0x00000000, 0xff000000], // 0.0.0.0/8 (this network)
+    [0x0a000000, 0xff000000], // 10.0.0.0/8 (RFC 1918 private)
+    [0x64400000, 0xffc00000], // 100.64.0.0/10 (CGNAT / shared address space)
+    [0x7f000000, 0xff000000], // 127.0.0.0/8 (loopback)
+    [0xa9fe0000, 0xffff0000], // 169.254.0.0/16 (link-local & cloud metadata)
+    [0xac100000, 0xfff00000], // 172.16.0.0/12 (RFC 1918 private)
+    [0xc0000000, 0xffffff00], // 192.0.0.0/24 (IETF protocol assignments)
+    [0xc0000200, 0xffffff00], // 192.0.2.0/24 (TEST-NET-1)
+    [0xc0a80000, 0xffff0000], // 192.168.0.0/16 (RFC 1918 private)
+    [0xc6120000, 0xfffe0000], // 198.18.0.0/15 (benchmarking)
+    [0xc6336400, 0xffffff00], // 198.51.100.0/24 (TEST-NET-2)
+    [0xcb007100, 0xffffff00], // 203.0.113.0/24 (TEST-NET-3)
+    [0xe0000000, 0xf0000000], // 224.0.0.0/4 (multicast)
+    [0xf0000000, 0xf0000000], // 240.0.0.0/4 (reserved + broadcast)
+  ];
+
+  for (const [network, mask] of ranges) {
+    if ((num & mask) >>> 0 === network) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function parseIpv6Groups(rawIp) {
+  const withoutZone = rawIp.split('%')[0].toLowerCase();
+  if (!net.isIPv6(withoutZone)) {
+    return null;
+  }
+
+  let ip = withoutZone;
+  const lastColon = ip.lastIndexOf(':');
+  const tail = ip.slice(lastColon + 1);
+  if (tail.includes('.')) {
+    const v4 = ipv4ToUint32(tail);
+    if (v4 === null) {
+      return null;
+    }
+    const high = ((v4 >>> 16) & 0xffff).toString(16);
+    const low = (v4 & 0xffff).toString(16);
+    ip = `${ip.slice(0, lastColon + 1)}${high}:${low}`;
+  }
+
+  const halves = ip.split('::');
+  if (halves.length > 2) {
+    return null;
+  }
+
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - (left.length + right.length);
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) {
+    return null;
+  }
+
+  const full = [...left, ...new Array(missing).fill('0'), ...right];
+  if (full.length !== 8) {
+    return null;
+  }
+
+  const groups = full.map((g) => parseInt(g, 16));
+  if (groups.some((g) => Number.isNaN(g) || g < 0 || g > 0xffff)) {
+    return null;
+  }
+  return groups;
+}
+
+function isPrivateOrReservedIpv6(ip) {
+  const g = parseIpv6Groups(ip);
+  if (!g) {
+    return true;
+  }
+
+  const allZeroPrefix = g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0;
+
+  // :: (unspecified) or ::1 (loopback)
+  if (allZeroPrefix && g[5] === 0 && g[6] === 0 && (g[7] === 0 || g[7] === 1)) {
+    return true;
+  }
+
+  // ::ffff:0:0/96 (IPv4-mapped IPv6) or ::/96 (IPv4-compatible IPv6)
+  if (allZeroPrefix && (g[5] === 0xffff || g[5] === 0)) {
+    const v4 = `${(g[6] >>> 8) & 0xff}.${g[6] & 0xff}.${(g[7] >>> 8) & 0xff}.${g[7] & 0xff}`;
+    return isPrivateOrReservedIpv4(v4);
+  }
+
+  // 64:ff9b::/96 & 64:ff9b:1::/48 (NAT64)
+  if (g[0] === 0x0064 && g[1] === 0xff9b) {
+    return true;
+  }
+
+  // 100::/64 (discard-only)
+  if (g[0] === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0) {
+    return true;
+  }
+
+  // 2001:db8::/32 (documentation)
+  if (g[0] === 0x2001 && g[1] === 0x0db8) {
+    return true;
+  }
+
+  // fc00::/7 (unique local addresses)
+  if ((g[0] & 0xfe00) === 0xfc00) {
+    return true;
+  }
+
+  // fe80::/10 (link-local) & fec0::/10 (deprecated site-local)
+  if ((g[0] & 0xffc0) === 0xfe80 || (g[0] & 0xffc0) === 0xfec0) {
+    return true;
+  }
+
+  // ff00::/8 (multicast)
+  if ((g[0] & 0xff00) === 0xff00) {
+    return true;
+  }
+
+  return false;
+}
+
+function isPrivateOrReservedIp(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return true;
+  }
+  const cleaned = ip.trim().replace(/^\[|\]$/g, '');
+  const version = net.isIP(cleaned.split('%')[0]);
+  if (version === 4) {
+    return isPrivateOrReservedIpv4(cleaned);
+  }
+  if (version === 6) {
+    return isPrivateOrReservedIpv6(cleaned);
+  }
+  return true;
+}
+
+function validatePushEndpointUrl(endpoint) {
+  const trimmed = typeof endpoint === 'string' ? endpoint.trim() : '';
+  if (!trimmed) {
+    return { error: 'PushSubscription endpoint is required' };
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    return { error: 'PushSubscription endpoint must be a valid URL' };
+  }
+
+  if (parsedUrl.protocol !== 'https:') {
+    return { error: 'PushSubscription endpoint must use HTTPS' };
+  }
+
+  if (parsedUrl.username || parsedUrl.password) {
+    return { error: 'PushSubscription endpoint must not contain credentials' };
+  }
+
+  if (parsedUrl.port && parsedUrl.port !== '443') {
+    return { error: 'PushSubscription endpoint must use the standard HTTPS port (443)' };
+  }
+
+  if (!isAllowedPushHostname(parsedUrl.hostname)) {
+    return { error: 'PushSubscription endpoint host is not an allowed push service' };
+  }
+
+  return { endpoint: trimmed, parsedUrl };
+}
+
+async function verifyPushEndpointDns(hostname) {
+  const lookupFn =
+    customDnsLookupImpl || ((host) => dns.promises.lookup(host, { all: true, verbatim: true }));
+  let records;
+  try {
+    records = await lookupFn(hostname);
+  } catch (err) {
+    return {
+      ok: false,
+      retryable: true,
+      error: err?.message || 'Push service DNS lookup failed',
+    };
+  }
+
+  const normalized = Array.isArray(records) ? records : records ? [records] : [];
+  if (normalized.length === 0) {
+    return {
+      ok: false,
+      retryable: true,
+      error: 'Push service DNS lookup returned no addresses',
+    };
+  }
+
+  for (const entry of normalized) {
+    const address = typeof entry === 'string' ? entry : entry?.address;
+    if (isPrivateOrReservedIp(address)) {
+      return {
+        ok: false,
+        retryable: false,
+        error: 'PushSubscription endpoint resolved to a disallowed IP address',
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 // Validate a standard MDN PushSubscription.toJSON() payload
 function validatePushSubscriptionPayload(subscription) {
   if (!subscription || typeof subscription !== 'object') {
     return { error: 'PushSubscription object is required' };
   }
 
-  const endpoint = typeof subscription.endpoint === 'string' ? subscription.endpoint.trim() : '';
-  if (!endpoint) {
-    return { error: 'PushSubscription endpoint is required' };
+  const endpointCheck = validatePushEndpointUrl(subscription.endpoint);
+  if (endpointCheck.error) {
+    return { error: endpointCheck.error };
   }
-
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(endpoint);
-  } catch {
-    return { error: 'PushSubscription endpoint must be a valid URL' };
-  }
-
-  const envConfig = getEnvConfig();
-  const isHttpLocal =
-    !envConfig.isProduction &&
-    parsedUrl.protocol === 'http:' &&
-    (parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1');
-
-  if (parsedUrl.protocol !== 'https:' && !isHttpLocal) {
-    return { error: 'PushSubscription endpoint must use HTTPS' };
-  }
+  const { endpoint } = endpointCheck;
 
   const keys = subscription.keys;
   if (!keys || typeof keys !== 'object') {
@@ -357,6 +632,42 @@ async function sendToSubscription(subscription, notificationPayload, options = {
     };
   }
 
+  // Re-validate endpoint URL at delivery time to guard against tampered or legacy rows
+  const endpointCheck = validatePushEndpointUrl(subscription.endpoint);
+  if (endpointCheck.error) {
+    sentryService.captureException(new Error(endpointCheck.error), {
+      service: 'push.service',
+      action: 'ssrfValidation',
+      endpoint: subscription.endpoint,
+    });
+    return {
+      endpoint: subscription.endpoint,
+      status: 'failed',
+      statusCode: 0,
+      error: endpointCheck.error,
+    };
+  }
+
+  // Resolve DNS and block private/reserved IPs before making any live outbound request
+  if (!customFetchImpl || customDnsLookupImpl) {
+    const dnsCheck = await verifyPushEndpointDns(endpointCheck.parsedUrl.hostname);
+    if (!dnsCheck.ok) {
+      if (!dnsCheck.retryable) {
+        sentryService.captureException(new Error(dnsCheck.error), {
+          service: 'push.service',
+          action: 'ssrfDnsValidation',
+          endpoint: subscription.endpoint,
+        });
+      }
+      return {
+        endpoint: subscription.endpoint,
+        status: dnsCheck.retryable ? 'retryable' : 'failed',
+        statusCode: 0,
+        error: dnsCheck.error,
+      };
+    }
+  }
+
   const fetchFn = customFetchImpl || global.fetch;
   const ttl = Number.isFinite(options.ttl)
     ? Math.max(0, Math.floor(options.ttl))
@@ -386,6 +697,8 @@ async function sendToSubscription(subscription, notificationPayload, options = {
   try {
     response = await fetchFn(subscription.endpoint, {
       method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(PUSH_REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: authHeader,
         'Content-Encoding': 'aes128gcm',
@@ -397,6 +710,15 @@ async function sendToSubscription(subscription, notificationPayload, options = {
       body: encryptedBody,
     });
   } catch (err) {
+    const errText = `${err?.message || ''} ${err?.cause?.message || ''}`;
+    if (/redirect/i.test(errText)) {
+      return {
+        endpoint: subscription.endpoint,
+        status: 'failed',
+        statusCode: 0,
+        error: 'PushSubscription endpoint attempted a disallowed redirect',
+      };
+    }
     return {
       endpoint: subscription.endpoint,
       status: 'retryable',
@@ -460,6 +782,8 @@ async function sendToSubscription(subscription, notificationPayload, options = {
 module.exports = {
   DEFAULT_VAPID_SUBJECT,
   DEFAULT_TTL_SECONDS,
+  DEFAULT_ALLOWED_PUSH_HOSTS,
+  PUSH_REQUEST_TIMEOUT_MS,
   toBase64Url,
   fromBase64Url,
   generateVapidKeys,
@@ -467,6 +791,11 @@ module.exports = {
   getVapidPublicKey,
   resetEphemeralVapidKeys,
   setFetchImpl,
+  setDnsLookupImpl,
+  isAllowedPushHostname,
+  isPrivateOrReservedIp,
+  validatePushEndpointUrl,
+  verifyPushEndpointDns,
   validatePushSubscriptionPayload,
   createVapidAuthHeader,
   encryptPayload,

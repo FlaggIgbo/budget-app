@@ -73,7 +73,7 @@ import { environment } from '../../../environments/environment';
             @if (step() === 'phone') {
               <form (ngSubmit)="continueWithPhone()" class="form">
                 <mat-form-field appearance="outline">
-                  <mat-label><label for="phone">Phone number</label></mat-label>
+                  <mat-label>Phone number</mat-label>
                   <mat-icon matPrefix>phone</mat-icon>
                   <input
                     matInput
@@ -138,7 +138,7 @@ import { environment } from '../../../environments/environment';
             } @else {
               <form (ngSubmit)="verifyOtp()" class="form">
                 <mat-form-field appearance="outline">
-                  <mat-label><label for="otp">Verification code</label></mat-label>
+                  <mat-label>Verification code</mat-label>
                   <mat-icon matPrefix>lock</mat-icon>
                   <input
                     matInput
@@ -149,6 +149,7 @@ import { environment } from '../../../environments/environment';
                     [placeholder]="sandbox()?.otp ?? '123456'"
                     maxlength="6"
                     autocomplete="one-time-code"
+                    inputmode="numeric"
                   />
                 </mat-form-field>
                 <button
