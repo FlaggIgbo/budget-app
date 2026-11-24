@@ -1,6 +1,6 @@
 module.exports = {
   '*.{js,ts,html,json,scss,css}': 'prettier --write',
-  'server/**/*.js': (filenames) => {
+  'server/**/*.ts': (filenames) => {
     const relative = filenames.map((f) => f.replace(/^server\//, '')).join(' ');
     return relative ? `cd server && npx eslint --fix ${relative}` : [];
   },

@@ -24,11 +24,11 @@ npm test        # Run Node test suite
 
 ## API Overview
 
-Routes are organized by domain under `routes/` (plus public runtime config at `GET /api/config` in `app.js`):
+Routes are organized by domain under `routes/` (plus public runtime config at `GET /api/config` in `app.ts`):
 
-- **System** (`routes/index.routes.js`) — Health check and service status
-- **Authentication** (`routes/auth.routes.js`) — Phone/email OTP, signup, sessions, and WebAuthn passkeys
-- **Profile** (`routes/profile.routes.js`) — User profile details, contact updates, and passkey management
-- **Banking** (`routes/bank.routes.js`) — Plaid linking, connected accounts, transactions, and financial summaries
-- **AI Chat** (`routes/chat.routes.js`) — Financial assistant conversations
-- **Push Notifications** (`routes/push_service.routes.js`) — Web Push subscriptions and notifications
+- **System** (`routes/index.routes.ts`) — Health check and service status
+- **Authentication** (`routes/auth.routes.ts`) — Phone/email OTP, signup, sessions, and WebAuthn passkeys
+- **Profile** (`routes/profile.routes.ts`) — User profile details, contact updates, and passkey management
+- **Banking** (`routes/bank.routes.ts`) — Plaid linking, connected accounts, transactions, and financial summaries
+- **AI Chat** (`routes/chat.routes.ts`) — Financial assistant conversations
+- **Push Notifications** (`routes/push_service.routes.ts`) — Web Push subscriptions and notifications

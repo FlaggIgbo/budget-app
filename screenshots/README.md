@@ -23,7 +23,7 @@ screenshots/
 └── pages/        # Full-page desktop and mobile viewport snapshots across app routes
 ```
 
-Snapshots are configured and driven by `scripts/generate-screenshots.js` using deterministic data, mocked API responses, and disabled animations.
+Snapshots are configured and driven by `scripts/generate-screenshots.ts` using deterministic data, mocked API responses, and disabled animations.
 
 ---
 

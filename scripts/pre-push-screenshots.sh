@@ -74,7 +74,7 @@ if [ $has_frontend_changes -eq 0 ]; then
 fi
 
 echo "📸 Frontend code changed. Regenerating component and page screenshots with Playwright..."
-node scripts/generate-screenshots.js
+node --import tsx scripts/generate-screenshots.ts
 
 # Check if screenshots were added or modified
 screenshot_diff=$(git status --porcelain screenshots/ 2>/dev/null || true)

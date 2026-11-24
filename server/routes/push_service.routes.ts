@@ -1,0 +1,12 @@
+import controller = require('../controllers/push_service.controller');
+import requireAuth = require('../middleware/requireAuth');
+
+// Web Push API subscription management (PostgreSQL) & test notification dispatch (RabbitMQ)
+export = (app) => {
+  app.get('/api/push/vapid-public-key', controller.getVapidPublicKey);
+  app.get('/api/push/subscriptions', requireAuth, controller.listSubscriptions);
+  app.post('/api/push/subscribe', requireAuth, controller.subscribe);
+  app.delete('/api/push/subscribe', requireAuth, controller.unsubscribe);
+  app.post('/api/push/unsubscribe', requireAuth, controller.unsubscribe);
+  app.post('/api/push/test', requireAuth, controller.sendTestNotification);
+};

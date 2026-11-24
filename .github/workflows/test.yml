@@ -40,6 +40,9 @@ jobs:
       - name: Install client deps
         run: cd client && npm ci
 
+      - name: Typecheck server
+        run: cd server && npm run typecheck
+
       - name: Run server tests
         env:
           NODE_ENV: test
