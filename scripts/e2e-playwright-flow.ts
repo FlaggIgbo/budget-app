@@ -4,6 +4,11 @@ import path = require('node:path');
 import { execSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
+// When run via tsx, esbuild injects `__name(fn, "name")` helpers into named
+// functions. Callbacks passed to page.evaluate()/addInitScript() are serialized
+// into the browser, where that helper does not exist, so define a no-op shim.
+const TSX_NAME_SHIM = 'globalThis.__name = globalThis.__name || ((fn) => fn);';
+
 // Detect whether running against a remote deployment or local preview server
 const targetArg = process.argv.find(
   (arg) => arg.startsWith('http://') || arg.startsWith('https://')
@@ -798,6 +803,7 @@ async function main() {
     },
   });
 
+  await context.addInitScript(TSX_NAME_SHIM);
   const page = await context.newPage();
 
   // Enable Chromium CDP Virtual WebAuthn Authenticator so navigator.credentials.create() / get() run for real

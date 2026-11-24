@@ -4,6 +4,11 @@ import path = require('node:path');
 import { execSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
+// When run via tsx, esbuild injects `__name(fn, "name")` helpers into named
+// functions. Callbacks passed to page.evaluate()/addInitScript() are serialized
+// into the browser, where that helper does not exist, so define a no-op shim.
+const TSX_NAME_SHIM = 'globalThis.__name = globalThis.__name || ((fn) => fn);';
+
 const ROOT_DIR = path.resolve(__dirname, '..');
 const CLIENT_DIR = path.resolve(ROOT_DIR, 'client');
 const DIST_BROWSER_DIR = path.resolve(CLIENT_DIR, 'dist/client/browser');
@@ -610,6 +615,12 @@ async function generateScreenshots() {
 
   const savedFiles = [];
   const browser = await chromium.launch();
+  const originalNewPage = browser.newPage.bind(browser);
+  browser.newPage = async (...args: Parameters<typeof browser.newPage>) => {
+    const newPage = await originalNewPage(...args);
+    await newPage.addInitScript(TSX_NAME_SHIM);
+    return newPage;
+  };
 
   try {
     // ----------------------------------------------------
