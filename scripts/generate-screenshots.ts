@@ -253,6 +253,9 @@ async function applyDeterministicStyles(page) {
         transition-delay: 0s !important;
         caret-color: transparent !important;
       }
+      .mat-ripple, .mat-mdc-button-persistent-ripple, .mat-mdc-button-ripple {
+        display: none !important;
+      }
       html, body, h1, h2, h3, h4, h5, h6, p, span:not(.material-icons), button, input, label, div,
       .mat-mdc-card-title, .mat-mdc-card-subtitle, .subtitle, .section-eyebrow {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
@@ -766,6 +769,11 @@ async function generateScreenshots() {
     });
     await signupPage.click('.btn-create-passkey');
     await signupPage.waitForSelector('.warning-banner');
+    await signupPage.waitForSelector('.btn-skip-passkey');
+    await signupPage.evaluate(() => {
+      (document.activeElement as HTMLElement)?.blur();
+    });
+    await signupPage.mouse.move(0, 0);
     await applyDeterministicStyles(signupPage);
 
     // Component: Sign Up Card (Passkey warning banner + Skip button)
