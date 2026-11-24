@@ -88,3 +88,21 @@ npm run format        # Format files with Prettier
     - **Idempotent Write Pipeline**: Content-hash deduplication (`account_id` + `amount` + `raw_date` + `merchant_pattern`) to prevent duplicate postings from re-delivered or out-of-order webhooks.
     - **Outbox Pattern & Async Enrichment**: Commit raw transaction payloads to an append-only log before dispatching to asynchronous categorization workers.
     - **Dynamic Rule Engine**: Editable categorization rules (merchant matching, price thresholds, split categories) that re-evaluate transactions without service restarts.
+
+---
+
+## Performance & Bottlenecks
+
+Track throughput and latency bottlenecks identified across API routes, database queries, Redis caching, and RabbitMQ workers:
+
+- **Detailed Investigation Template & Log**: [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md)
+- **Architecture Decision Records**: [`docs/adr/`](./docs/adr/)
+- **Load & Chaos Harness**: [`load-tests/k6-test.js`](./load-tests/k6-test.js)
+
+### Bottleneck Log
+
+| Subsystem / Endpoint | Baseline (P95 / RPS) | Identified Bottleneck | Fix / Optimization | Post-Fix (P95 / RPS) | Status |
+|----------------------|----------------------|-----------------------|--------------------|----------------------|--------|
+| `GET /api/bank/transactions` | *TODO: e.g. 650ms @ 30 RPS* | *TODO: Full table scan on transactions* | *TODO: Composite index + cursor pagination* | *TODO: 45ms @ 350 RPS* | *Pending* |
+| `POST /api/chat` | *TODO* | *TODO* | *TODO* | *TODO* | *Pending* |
+
