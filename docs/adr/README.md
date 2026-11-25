@@ -7,7 +7,8 @@ This directory documents key architectural, infrastructural, and data engineerin
 | Number | Date | Title | Status |
 |--------|------|-------|--------|
 | [0001](./0001-record-architecture-decisions.md) | 2026-11-24 | Record Architecture Decisions | Accepted |
-| *0002* | *YYYY-MM-DD* | *[Proposed Decision Title]* | *Proposed* |
+| [0002](./0002-core-application-architecture.md) | 2026-11-24 | Core Application Architecture: Web Push API, Scheduled Account Sync, and Redis Session Management | Accepted |
+| *0003* | *YYYY-MM-DD* | *[Proposed Decision Title]* | *Proposed* |
 
 ## ADR Lifecycle
 
