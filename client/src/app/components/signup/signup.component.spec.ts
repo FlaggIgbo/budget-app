@@ -242,4 +242,29 @@ describe('SignupComponent', () => {
     );
     expect(component.step()).toBe('passkey');
   });
+
+  it('should reject invalid email addresses on client-side validation', async () => {
+    component.firstName = 'Jordan';
+    component.lastName = 'Lee';
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const emailInput = compiled.querySelector('#email') as HTMLInputElement;
+    const submitBtn = compiled.querySelector('button[type="submit"]') as HTMLButtonElement;
+
+    emailInput.value = 'not-an-email';
+    emailInput.dispatchEvent(new Event('input'));
+    emailInput.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.isEmailValid).toBeFalse();
+    expect(submitBtn.disabled).toBeTrue();
+    expect(compiled.querySelector('mat-error')?.textContent).toContain('valid email');
+
+    component.sendEmailOtp();
+    expect(authServiceMock.requestSignupEmailOtp).not.toHaveBeenCalled();
+    expect(component.error()).toContain('valid email');
+  });
 });

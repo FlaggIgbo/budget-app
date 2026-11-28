@@ -658,6 +658,18 @@ async function generateScreenshots() {
     savedFiles.push('screenshots/pages/login-page.png');
     console.log('  ✓ pages/login-page.png');
 
+    // Component: Login Card (Invalid US phone validation error)
+    await loginPage.fill('#phone', '+442079460958');
+    await loginPage.locator('#phone').blur();
+    await loginPage.waitForSelector('.login mat-error');
+    await loginPage.mouse.move(0, 0);
+    await applyDeterministicStyles(loginPage);
+    await loginPage.locator('.login .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'login-card-phone-error.png'),
+    });
+    savedFiles.push('screenshots/components/login-card-phone-error.png');
+    console.log('  ✓ components/login-card-phone-error.png');
+
     // Advance to OTP verification step
     await loginPage.fill('#phone', '+15551234567');
     await loginPage.click('button[type="submit"]');
@@ -698,6 +710,19 @@ async function generateScreenshots() {
     await signupPage.waitForSelector('#firstName');
     await signupPage.fill('#firstName', 'Jordan');
     await signupPage.fill('#lastName', 'Lee');
+
+    // Component: Sign Up Card (Invalid email validation error)
+    await signupPage.fill('#email', 'invalid-email');
+    await signupPage.locator('#email').blur();
+    await signupPage.waitForSelector('.signup mat-error');
+    await signupPage.mouse.move(0, 0);
+    await applyDeterministicStyles(signupPage);
+    await signupPage.locator('.signup .card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'signup-card-email-error.png'),
+    });
+    savedFiles.push('screenshots/components/signup-card-email-error.png');
+    console.log('  ✓ components/signup-card-email-error.png');
+
     await signupPage.fill('#email', 'jordan@example.com');
     await applyDeterministicStyles(signupPage);
 
@@ -962,6 +987,19 @@ async function generateScreenshots() {
     // Open Email Verification Card
     await profilePage.click('.btn-edit-email');
     await profilePage.waitForSelector('.link-card');
+
+    // Component: Profile Email Verification Card (Invalid email validation error)
+    await profilePage.fill('input[name="newEmail"]', 'invalid-email');
+    await profilePage.locator('input[name="newEmail"]').blur();
+    await profilePage.waitForSelector('.link-card mat-error');
+    await profilePage.mouse.move(0, 0);
+    await applyDeterministicStyles(profilePage);
+    await profilePage.locator('.link-card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'profile-email-verify-card-error.png'),
+    });
+    savedFiles.push('screenshots/components/profile-email-verify-card-error.png');
+    console.log('  ✓ components/profile-email-verify-card-error.png');
+
     await profilePage.fill('input[name="newEmail"]', 'alex@example.com');
     await applyDeterministicStyles(profilePage);
 
@@ -983,6 +1021,19 @@ async function generateScreenshots() {
     // Open Phone Number Change Card
     await profilePage.click('.btn-edit-phone');
     await profilePage.waitForSelector('input[name="newPhone"]');
+
+    // Component: Profile Phone Change Card (Invalid US phone validation error)
+    await profilePage.fill('input[name="newPhone"]', '+442079460958');
+    await profilePage.locator('input[name="newPhone"]').blur();
+    await profilePage.waitForSelector('.link-card mat-error');
+    await profilePage.mouse.move(0, 0);
+    await applyDeterministicStyles(profilePage);
+    await profilePage.locator('.link-card').screenshot({
+      path: path.join(COMPONENTS_DIR, 'profile-phone-verify-card-error.png'),
+    });
+    savedFiles.push('screenshots/components/profile-phone-verify-card-error.png');
+    console.log('  ✓ components/profile-phone-verify-card-error.png');
+
     await profilePage.fill('input[name="newPhone"]', '+15559876543');
     await applyDeterministicStyles(profilePage);
 

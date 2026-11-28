@@ -12,6 +12,11 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
 import { PasskeyRequestOptionsJSON, WebAuthnService } from '../../services/webauthn.service';
 import { environment } from '../../../environments/environment';
+import {
+  isValidUsPhone,
+  normalizeUsPhone,
+  UsPhoneValidatorDirective,
+} from '../../utils/validation.util';
 
 @Component({
   selector: 'app-login',
@@ -25,6 +30,7 @@ import { environment } from '../../../environments/environment';
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
+    UsPhoneValidatorDirective,
   ],
   template: `
     <div class="login">
@@ -80,17 +86,26 @@ import { environment } from '../../../environments/environment';
                     id="phone"
                     type="tel"
                     [(ngModel)]="phone"
+                    #phoneModel="ngModel"
                     name="phone"
                     [placeholder]="sandbox()?.phone ?? '+15551234567'"
                     autocomplete="tel"
                     inputmode="tel"
+                    required
+                    appUsPhone
                   />
+                  <mat-hint>US phone number (+1)</mat-hint>
+                  @if (phoneModel.hasError('required')) {
+                    <mat-error>Phone number is required</mat-error>
+                  } @else if (phoneModel.hasError('usPhone')) {
+                    <mat-error>Enter a valid US (+1) phone number (e.g. +15551234567)</mat-error>
+                  }
                 </mat-form-field>
                 <button
                   mat-flat-button
                   type="submit"
                   class="btn"
-                  [disabled]="loading() || !phone.trim()"
+                  [disabled]="loading() || !isPhoneValid"
                 >
                   @if (loading()) {
                     <mat-spinner diameter="20"></mat-spinner>
@@ -415,13 +430,22 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
   }
 
+  get isPhoneValid(): boolean {
+    return isValidUsPhone(this.phone);
+  }
+
   // Look up account by phone: authenticate with passkey via navigator.credentials.get() if registered,
   // otherwise proceed with SMS OTP (for new users or users without a passkey)
   async continueWithPhone() {
-    if (!this.phone.trim()) {
+    const normalizedPhone = normalizeUsPhone(this.phone);
+    if (!normalizedPhone) {
+      if (this.phone.trim()) {
+        this.error.set('Please enter a valid US (+1) phone number');
+      }
       return;
     }
 
+    this.phone = normalizedPhone;
     this.error.set(null);
     this.loading.set(true);
 

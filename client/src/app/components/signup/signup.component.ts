@@ -12,6 +12,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { AuthService } from '../../services/auth.service';
 import { WebAuthnService } from '../../services/webauthn.service';
 import { environment } from '../../../environments/environment';
+import { EmailValidatorDirective, isValidEmail } from '../../utils/validation.util';
 
 export const PASSKEY_USER_ERROR_WARNING =
   'Ideally, you should create a passkey. You can do this on the profile page.';
@@ -30,6 +31,7 @@ export const PASSKEY_SERVER_ERROR_WARNING =
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
+    EmailValidatorDirective,
   ],
   template: `
     <div class="signup">
@@ -111,18 +113,25 @@ export const PASSKEY_SERVER_ERROR_WARNING =
                     id="email"
                     type="email"
                     [(ngModel)]="email"
+                    #emailModel="ngModel"
                     name="email"
                     placeholder="you@example.com"
                     autocomplete="email"
                     required
+                    appEmail
                   />
+                  @if (emailModel.hasError('required')) {
+                    <mat-error>Email address is required</mat-error>
+                  } @else if (emailModel.hasError('emailFormat')) {
+                    <mat-error>Enter a valid email address (e.g. you&#64;example.com)</mat-error>
+                  }
                 </mat-form-field>
 
                 <button
                   mat-flat-button
                   type="submit"
                   class="btn"
-                  [disabled]="loading() || !firstName.trim() || !lastName.trim() || !email.trim()"
+                  [disabled]="loading() || !firstName.trim() || !lastName.trim() || !isEmailValid"
                 >
                   @if (loading()) {
                     <mat-spinner diameter="20"></mat-spinner>
@@ -554,9 +563,18 @@ export class SignupComponent implements OnInit, OnDestroy {
     }
   }
 
+  get isEmailValid(): boolean {
+    return isValidEmail(this.email);
+  }
+
   // Step 1: Send 6-digit email OTP and start WebOTP listener for autofill
   sendEmailOtp() {
     if (!this.firstName.trim() || !this.lastName.trim() || !this.email.trim()) {
+      return;
+    }
+
+    if (!isValidEmail(this.email)) {
+      this.error.set('Please enter a valid email address');
       return;
     }
 

@@ -236,4 +236,35 @@ describe('LoginComponent', () => {
     expect(authServiceMock.verifyOtp).toHaveBeenCalledWith('+15551234567', '123456');
     expect(routerMock.navigate).toHaveBeenCalledWith(['/dashboard']);
   });
+
+  it('should reject invalid or non-US phone numbers on client-side validation', async () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const phoneInput = compiled.querySelector('#phone') as HTMLInputElement;
+    const submitBtn = compiled.querySelector('button[type="submit"]') as HTMLButtonElement;
+
+    phoneInput.value = '+442079460958';
+    phoneInput.dispatchEvent(new Event('input'));
+    phoneInput.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.isPhoneValid).toBeFalse();
+    expect(submitBtn.disabled).toBeTrue();
+    expect(compiled.querySelector('mat-error')?.textContent).toContain('US (+1)');
+
+    await component.continueWithPhone();
+    expect(authServiceMock.getPasskeyLoginOptions).not.toHaveBeenCalled();
+    expect(component.error()).toContain('US (+1)');
+  });
+
+  it('should normalize formatted US phone numbers to +1 E.164 before submitting', async () => {
+    component.phone = '(555) 999-0001';
+    expect(component.isPhoneValid).toBeTrue();
+
+    await component.continueWithPhone();
+
+    expect(component.phone).toBe('+15559990001');
+    expect(authServiceMock.getPasskeyLoginOptions).toHaveBeenCalledWith('+15559990001');
+  });
 });

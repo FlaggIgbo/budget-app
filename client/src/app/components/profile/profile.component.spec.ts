@@ -298,4 +298,65 @@ describe('ProfileComponent', () => {
     expect(pushServiceMock.unsubscribe).toHaveBeenCalled();
     expect(compiled.querySelector('.btn-enable-push')).toBeTruthy();
   });
+
+  it('should reject invalid email addresses on profile email change', async () => {
+    component.startContactChange('email');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const emailInput = compiled.querySelector('input[name="newEmail"]') as HTMLInputElement;
+    const submitBtn = compiled.querySelector(
+      '.link-form button[type="submit"]'
+    ) as HTMLButtonElement;
+
+    emailInput.value = 'invalid-email';
+    emailInput.dispatchEvent(new Event('input'));
+    emailInput.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.isNewEmailValid).toBeFalse();
+    expect(submitBtn.disabled).toBeTrue();
+    expect(compiled.querySelector('mat-error')?.textContent).toContain('valid email');
+
+    component.sendContactOtp();
+    expect(userServiceMock.requestEmailChangeOtp).not.toHaveBeenCalled();
+    expect(component.editError()).toContain('valid email');
+  });
+
+  it('should reject non-US phone numbers and normalize formatted US numbers on profile phone change', async () => {
+    component.startContactChange('phone');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const phoneInput = compiled.querySelector('input[name="newPhone"]') as HTMLInputElement;
+    const submitBtn = compiled.querySelector(
+      '.link-form button[type="submit"]'
+    ) as HTMLButtonElement;
+
+    phoneInput.value = '+442079460958';
+    phoneInput.dispatchEvent(new Event('input'));
+    phoneInput.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.isNewPhoneValid).toBeFalse();
+    expect(submitBtn.disabled).toBeTrue();
+    expect(compiled.querySelector('mat-error')?.textContent).toContain('US (+1)');
+
+    component.sendContactOtp();
+    expect(userServiceMock.requestPhoneChangeOtp).not.toHaveBeenCalled();
+    expect(component.editError()).toContain('US (+1)');
+
+    component.newPhone = '(555) 987-6543';
+    expect(component.isNewPhoneValid).toBeTrue();
+    component.sendContactOtp();
+
+    expect(component.newPhone).toBe('+15559876543');
+    expect(userServiceMock.requestPhoneChangeOtp).toHaveBeenCalledWith('+15559876543');
+  });
 });

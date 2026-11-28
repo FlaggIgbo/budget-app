@@ -14,6 +14,13 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { UserService, UserProfile } from '../../services/user.service';
 import { WebAuthnService } from '../../services/webauthn.service';
 import { PushNotificationService } from '../../services/push-notification.service';
+import {
+  EmailValidatorDirective,
+  isValidEmail,
+  isValidUsPhone,
+  normalizeUsPhone,
+  UsPhoneValidatorDirective,
+} from '../../utils/validation.util';
 
 export type Profile = UserProfile;
 
@@ -32,6 +39,8 @@ export type Profile = UserProfile;
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    EmailValidatorDirective,
+    UsPhoneValidatorDirective,
   ],
   template: `
     <mat-toolbar class="top-toolbar">
@@ -184,10 +193,20 @@ export type Profile = UserProfile;
                         matInput
                         type="email"
                         [(ngModel)]="newEmail"
+                        #newEmailModel="ngModel"
                         name="newEmail"
                         placeholder="new-email@example.com"
+                        autocomplete="email"
                         required
+                        appEmail
                       />
+                      @if (newEmailModel.hasError('required')) {
+                        <mat-error>Email address is required</mat-error>
+                      } @else if (newEmailModel.hasError('emailFormat')) {
+                        <mat-error
+                          >Enter a valid email address (e.g. you&#64;example.com)</mat-error
+                        >
+                      }
                     </mat-form-field>
                   } @else {
                     <mat-form-field appearance="outline" class="form-field-full">
@@ -197,12 +216,22 @@ export type Profile = UserProfile;
                         matInput
                         type="tel"
                         [(ngModel)]="newPhone"
+                        #newPhoneModel="ngModel"
                         name="newPhone"
                         placeholder="+15559876543"
                         autocomplete="tel"
                         inputmode="tel"
                         required
+                        appUsPhone
                       />
+                      <mat-hint>US phone number (+1)</mat-hint>
+                      @if (newPhoneModel.hasError('required')) {
+                        <mat-error>Phone number is required</mat-error>
+                      } @else if (newPhoneModel.hasError('usPhone')) {
+                        <mat-error
+                          >Enter a valid US (+1) phone number (e.g. +15559876543)</mat-error
+                        >
+                      }
                     </mat-form-field>
                   }
 
@@ -212,7 +241,7 @@ export type Profile = UserProfile;
                       class="btn-primary"
                       type="submit"
                       [disabled]="
-                        editLoading() || (target === 'email' ? !newEmail.trim() : !newPhone.trim())
+                        editLoading() || (target === 'email' ? !isNewEmailValid : !isNewPhoneValid)
                       "
                     >
                       <mat-icon>send</mat-icon>
@@ -988,6 +1017,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.editError.set(null);
   }
 
+  get isNewEmailValid(): boolean {
+    return isValidEmail(this.newEmail);
+  }
+
+  get isNewPhoneValid(): boolean {
+    return isValidUsPhone(this.newPhone);
+  }
+
   // Step 1: Request 6-digit OTP for the new email address or phone number and start WebOTP autofill
   sendContactOtp() {
     const target = this.editingContact();
@@ -995,9 +1032,28 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const value = target === 'email' ? this.newEmail.trim() : this.newPhone.trim();
-    if (!value) {
-      return;
+    let value: string;
+    if (target === 'email') {
+      const trimmedEmail = this.newEmail.trim();
+      if (!trimmedEmail) {
+        return;
+      }
+      if (!isValidEmail(trimmedEmail)) {
+        this.editError.set('Please enter a valid email address');
+        return;
+      }
+      value = trimmedEmail;
+    } else {
+      if (!this.newPhone.trim()) {
+        return;
+      }
+      const normalizedPhone = normalizeUsPhone(this.newPhone);
+      if (!normalizedPhone) {
+        this.editError.set('Please enter a valid US (+1) phone number');
+        return;
+      }
+      this.newPhone = normalizedPhone;
+      value = normalizedPhone;
     }
 
     this.abortOtpListener();
