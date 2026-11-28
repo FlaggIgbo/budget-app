@@ -46,8 +46,14 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Parse JSON and URL-encoded request bodies
-app.use(express.json());
+// Parse JSON and URL-encoded request bodies (capture rawBody for Plaid webhook SHA-256 verification)
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf.toString('utf8');
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 
 // Native CORS middleware (replaces cors package)

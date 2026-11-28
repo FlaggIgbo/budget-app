@@ -3,8 +3,10 @@ import app = require('./app');
 import db = require('./models');
 import sandboxModule = require('./seed/sandbox');
 const { seedSandboxUser } = sandboxModule;
-import cronSchedulerModule = require('./services/jobs/cron.scheduler');
-const { startDailySyncScheduler } = cronSchedulerModule;
+import eventBus = require('./services/events/eventBus.service');
+import queueService = require('./services/jobs/queue.service');
+import pushServiceModule = require('./push_service');
+const { pushQueue } = pushServiceModule;
 
 // Ensure existing users tables gain passkey columns cleanly without destructive sync
 async function ensurePasskeyColumns() {
@@ -45,13 +47,19 @@ async function ensurePasskeyColumns() {
   }
 }
 
-// Start database, daily RabbitMQ sync CRON scheduler, and HTTP server
+// Start database, RabbitMQ event consumers, and HTTP server
 db.sequelize
   .sync()
   .then(() => ensurePasskeyColumns())
-  .then(() => {
+  .then(async () => {
     console.log('Database synced.');
-    startDailySyncScheduler();
+    try {
+      await queueService.startSyncConsumer();
+      await pushQueue.startPushConsumer();
+      console.log('RabbitMQ event consumers started (bank sync & push notifications).');
+    } catch (err) {
+      console.error('Failed to start RabbitMQ consumers:', err.message);
+    }
     return seedSandboxUser();
   })
   .catch((err) => {
@@ -59,6 +67,14 @@ db.sequelize
   });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
+async function shutdown() {
+  await eventBus.close();
+  server.close(() => process.exit(0));
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

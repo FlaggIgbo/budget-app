@@ -175,8 +175,10 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
   let passkeyService;
   let sessionService;
   let passwordService;
+  let eventBus;
   let queueService;
   let bankService;
+  let mockAmqp;
   let sentEmails = [];
   let sentSmsMessages = [];
   const fakeRedisStore = new Map();
@@ -195,8 +197,14 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
     passkeyService = require('../services/authentication/passkey.service');
     sessionService = require('../services/authentication/session.service');
     passwordService = require('../services/authentication/password.service');
+    eventBus = require('../services/events/eventBus.service');
     queueService = require('../services/jobs/queue.service');
     bankService = require('../services/banking/bank.service');
+
+    const { createMockAmqpBroker } = require('./helpers/mockAmqp');
+    mockAmqp = createMockAmqpBroker();
+    eventBus.setChannelFactory(mockAmqp.channelFactory);
+    await queueService.startSyncConsumer();
 
     // Mock email sender (used for signup email OTP & profile email change OTP)
     emailService.setTransporter({
@@ -268,7 +276,7 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
     sentEmails = [];
     sentSmsMessages = [];
     fakeRedisStore.clear();
-    queueService.clearPendingJobs();
+    mockAmqp.reset();
   });
 
   describe('POST /api/otp/request (Phone-only Login)', () => {
@@ -504,10 +512,10 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       assert.strictEqual(sessionEntries.length, 1);
       assert.strictEqual(sessionEntries[0][1].ttl, 3600);
 
-      const jobs = queueService.getPendingJobs();
-      assert.strictEqual(jobs.length, 1);
-      assert.strictEqual(jobs[0].userId, persisted.id);
-      assert.strictEqual(jobs[0].priority, queueService.PRIORITY_HIGH);
+      const loginEvents = mockAmqp.getPublishedEvents(eventBus.DomainEvents.USER_LOGGED_IN);
+      assert.strictEqual(loginEvents.length, 1);
+      assert.strictEqual(loginEvents[0].envelope.payload.userId, persisted.id);
+      assert.strictEqual(loginEvents[0].properties.priority, queueService.PRIORITY_HIGH);
     });
 
     it('allows skipping passkey creation during signup when skipPasskey is true after an error', async () => {
@@ -569,12 +577,16 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       const [, sessionRecord] = sessionEntries[0];
       assert.strictEqual(sessionRecord.ttl, 3600, 'expected 1-hour (3600s) TTL in Redis');
 
-      // Verify prioritized RabbitMQ sync job was enqueued on login
-      const jobs = queueService.getPendingJobs();
-      assert.strictEqual(jobs.length, 1);
-      assert.strictEqual(jobs[0].userId, existingUser.id);
-      assert.strictEqual(jobs[0].source, 'login');
-      assert.strictEqual(jobs[0].priority, queueService.PRIORITY_HIGH);
+      // Verify high-priority `user.logged_in` domain event was published and routed to RabbitMQ sync queue
+      const loginEvents = mockAmqp.getPublishedEvents(eventBus.DomainEvents.USER_LOGGED_IN);
+      assert.strictEqual(loginEvents.length, 1);
+      assert.strictEqual(loginEvents[0].envelope.payload.userId, existingUser.id);
+      assert.strictEqual(loginEvents[0].envelope.payload.source, 'login');
+      assert.strictEqual(loginEvents[0].properties.priority, queueService.PRIORITY_HIGH);
+
+      const syncQueueMsgs = mockAmqp.getQueueMessages(queueService.SYNC_QUEUE_NAME);
+      assert.strictEqual(syncQueueMsgs.length, 1);
+      assert.strictEqual(syncQueueMsgs[0].json.type, eventBus.DomainEvents.USER_LOGGED_IN);
 
       // Verify /api/auth/me returns public user without password
       const cookie = res.headers['set-cookie'];
@@ -777,9 +789,9 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       assert.strictEqual(signupRes.status, 201);
       assert.strictEqual(signupRes.body.user?.hasPasskey, true);
 
-      // Clear session/jobs from signup so we verify login independently
+      // Clear session/events from signup so we verify login independently
       fakeRedisStore.clear();
-      queueService.clearPendingJobs();
+      mockAmqp.reset();
 
       // Step 1: Enter phone number -> server finds account with passkey in users table & returns get() options
       const loginOptsRes = await request(app)

@@ -4,6 +4,8 @@ import secretsVault = require('./secrets.vault');
 import syncWorker = require('./sync.worker');
 import disconnectHandler = require('./disconnect.handler');
 import emailService = require('../communications/email.service');
+import eventBus = require('../events/eventBus.service');
+import queueService = require('../jobs/queue.service');
 
 // ============================================================================
 // BANK SERVICE (API SERVER BUSINESS LOGIC)
@@ -49,11 +51,20 @@ async function createEnrollment(
     institutionName,
   });
 
-  // Step 2: Trigger Sync Worker to pull accounts, balances, and transactions
+  // Step 2: Emit `bank.enrollment.created` domain event so the RabbitMQ Sync Consumer pulls initial data asynchronously
   try {
-    await syncWorker.syncEnrollmentData(enrollment, userId);
+    await eventBus.publishEvent(
+      eventBus.DomainEvents.BANK_ENROLLMENT_CREATED,
+      {
+        userId,
+        enrollmentId: enrollment.enrollmentId,
+        institutionName: enrollment.institutionName || null,
+        source: 'enrollment',
+      },
+      { priority: queueService.PRIORITY_HIGH }
+    );
   } catch {
-    // Allow enrollment save to succeed even if initial sync encounters a network error
+    // Allow enrollment save to succeed even if RabbitMQ is temporarily unreachable
   }
 
   return {
@@ -98,29 +109,10 @@ async function listEnrollments(userId) {
 
 // Get all accounts + balances from the App Database (GET /accounts)
 async function listStoredAccounts(userId, enrollmentId = null) {
-  const enrollments = await db.Enrollment.findAll({
-    where: { userId },
-  });
-
-  let storedAccounts = await db.Account.findAll({
+  const storedAccounts = await db.Account.findAll({
     where: { userId },
     order: [['createdAt', 'ASC']],
   });
-
-  // If the user has connected banks but no cached accounts yet, run the Sync Worker once
-  if (enrollments.length > 0 && storedAccounts.length === 0) {
-    for (let i = 0; i < enrollments.length; i++) {
-      try {
-        await syncWorker.syncEnrollmentData(enrollments[i], userId);
-      } catch {
-        // Ignore individual enrollment sync errors
-      }
-    }
-    storedAccounts = await db.Account.findAll({
-      where: { userId },
-      order: [['createdAt', 'ASC']],
-    });
-  }
 
   const results = [];
   for (let i = 0; i < storedAccounts.length; i++) {
@@ -158,29 +150,10 @@ async function listStoredAccounts(userId, enrollmentId = null) {
 // Get persisted transactions from the App Database (GET /transactions)
 // Supports filtering by enrollmentId or institutionName ("Transactions per institution")
 async function listStoredTransactions(userId, filters: Record<string, any> = {}) {
-  const enrollments = await db.Enrollment.findAll({
-    where: { userId },
-  });
-
-  let storedTransactions = await db.Transaction.findAll({
+  const storedTransactions = await db.Transaction.findAll({
     where: { userId },
     order: [['date', 'DESC']],
   });
-
-  // If user has connected banks but no cached transactions yet, run Sync Worker once
-  if (enrollments.length > 0 && storedTransactions.length === 0) {
-    for (let i = 0; i < enrollments.length; i++) {
-      try {
-        await syncWorker.syncEnrollmentData(enrollments[i], userId);
-      } catch {
-        // Ignore individual enrollment sync errors
-      }
-    }
-    storedTransactions = await db.Transaction.findAll({
-      where: { userId },
-      order: [['date', 'DESC']],
-    });
-  }
 
   const targetEnrollmentId = filters.enrollmentId || '';
   const targetInstitution = filters.institutionName || '';
@@ -320,27 +293,9 @@ async function getNetWorth(userId) {
 
 // Compute monthly dashboard summary from persisted transactions in PostgreSQL
 async function getDashboardSummary(userId, monthsBack = 3) {
-  const enrollments = await db.Enrollment.findAll({
+  const storedTransactions = await db.Transaction.findAll({
     where: { userId },
   });
-
-  let storedTransactions = await db.Transaction.findAll({
-    where: { userId },
-  });
-
-  // If user has connected banks but no cached transactions yet, sync once
-  if (enrollments.length > 0 && storedTransactions.length === 0) {
-    for (let i = 0; i < enrollments.length; i++) {
-      try {
-        await syncWorker.syncEnrollmentData(enrollments[i], userId);
-      } catch {
-        // Ignore individual enrollment sync errors
-      }
-    }
-    storedTransactions = await db.Transaction.findAll({
-      where: { userId },
-    });
-  }
 
   const now = new Date();
   const startDate = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);

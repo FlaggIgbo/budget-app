@@ -147,13 +147,23 @@ function normalizeTransaction(txn) {
 // Create a Link token for Plaid Link initialization in the browser
 async function createLinkToken(userId) {
   const config = getConnectConfig();
+  const webhookUrl = (process.env.PLAID_WEBHOOK_URL || '').trim();
   return await plaidRequest('/link/token/create', {
     user: { client_user_id: String(userId) },
     client_name: process.env.PLAID_CLIENT_NAME || 'Budget App',
     products: config.products,
     country_codes: config.countryCodes,
     language: 'en',
+    ...(webhookUrl ? { webhook: webhookUrl } : {}),
   });
+}
+
+// Fetch Plaid webhook verification JWK for validating Plaid-Verification JWT signatures
+async function getWebhookVerificationKey(keyId) {
+  const response = await plaidRequest('/webhook_verification_key/get', {
+    key_id: keyId,
+  });
+  return response?.key || null;
 }
 
 // Exchange a Plaid Link public_token for a permanent access_token and item_id
@@ -269,6 +279,7 @@ export = {
   normalizeAccount,
   normalizeTransaction,
   createLinkToken,
+  getWebhookVerificationKey,
   exchangePublicToken,
   getAccounts,
   getBalances,

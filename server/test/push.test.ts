@@ -7,6 +7,8 @@ import crypto = require('crypto');
 process.env.NODE_ENV = 'test';
 
 import db = require('../models');
+import eventBus = require('../services/events/eventBus.service');
+import { createMockAmqpBroker } from './helpers/mockAmqp';
 import pushServiceModule = require('../push_service');
 const { pushService, pushWorker, pushQueue } = pushServiceModule;
 import pushController = require('../controllers/push_service.controller');
@@ -242,6 +244,7 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
   const originalUpdate = db.PushSubscription.update;
 
   let subsByEndpoint: Map<string, any>;
+  let mockAmqp: ReturnType<typeof createMockAmqpBroker>;
 
   function makeSubRecord(data) {
     const record = {
@@ -262,10 +265,12 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     return record;
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.NODE_ENV = 'test';
     subsByEndpoint = new Map();
-    pushQueue.clearPendingPushJobs();
+    mockAmqp = createMockAmqpBroker();
+    eventBus.setChannelFactory(mockAmqp.channelFactory);
+    await pushQueue.startPushConsumer();
     pushWorker.clearMemoryDedupeStore();
     pushWorker.setClient(null);
     pushService.setFetchImpl(null);
@@ -345,7 +350,8 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     pushService.setFetchImpl(null);
     pushService.setDnsLookupImpl(null);
     pushWorker.setClient(null);
-    pushQueue.clearPendingPushJobs();
+    mockAmqp.reset();
+    eventBus.setChannelFactory(null);
   });
 
   it('stores PushSubscriptions in PostgreSQL, hides encryption secrets in public output, and self-heals 404/410 Gone endpoints', async () => {
@@ -374,16 +380,14 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
       return { status: 201 };
     });
 
-    await pushQueue.enqueuePushNotificationJob(userId, {
-      title: 'Bank synced',
-      body: '2 accounts refreshed',
-      url: '/dashboard',
+    await eventBus.publishEvent(eventBus.DomainEvents.BANK_SYNC_COMPLETED, {
+      userId,
+      source: 'plaid_webhook',
+      syncedCount: 2,
     });
 
-    const result = await pushQueue.processNextPushJob();
-    assert.strictEqual(result.status, 'completed');
-    assert.strictEqual(result.deliveredCount, 1);
-    assert.strictEqual(result.prunedCount, 1);
+    const processed = await mockAmqp.drainNext(pushQueue.PUSH_QUEUE_NAME);
+    assert.strictEqual(processed, true);
     assert.strictEqual(fetchCalls.length, 2);
 
     // Self-healing verification: stale 410 device was automatically removed from PostgreSQL
@@ -403,7 +407,7 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
         healthyDevice.authSecret
       )
     );
-    assert.strictEqual(decrypted.title, 'Bank synced');
+    assert.strictEqual(decrypted.title, 'Bank accounts synced');
     assert.strictEqual(decrypted.url, '/dashboard');
   });
 
@@ -422,20 +426,24 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
       { maxRetries: 2 }
     );
 
-    const attempt0 = await pushQueue.processNextPushJob();
-    assert.strictEqual(attempt0.status, 'requeued');
-    assert.strictEqual(attempt0.nextAttempt, 1);
-    assert.strictEqual(pushQueue.getPendingPushJobs().length, 1);
+    // Attempt 0 -> requeued as attempt 1
+    assert.strictEqual(await mockAmqp.drainNext(pushQueue.PUSH_QUEUE_NAME), true);
+    let queued = mockAmqp.getQueueMessages(pushQueue.PUSH_QUEUE_NAME);
+    assert.strictEqual(queued.length, 1);
+    assert.strictEqual(queued[0].json.payload.attempt, 1);
 
-    const attempt1 = await pushQueue.processNextPushJob();
-    assert.strictEqual(attempt1.status, 'requeued');
-    assert.strictEqual(attempt1.nextAttempt, 2);
+    // Attempt 1 -> requeued as attempt 2
+    assert.strictEqual(await mockAmqp.drainNext(pushQueue.PUSH_QUEUE_NAME), true);
+    queued = mockAmqp.getQueueMessages(pushQueue.PUSH_QUEUE_NAME);
+    assert.strictEqual(queued.length, 1);
+    assert.strictEqual(queued[0].json.payload.attempt, 2);
 
-    const attempt2 = await pushQueue.processNextPushJob();
-    assert.strictEqual(attempt2.status, 'dead_lettered');
-    assert.strictEqual(pushQueue.getPendingPushJobs().length, 0);
-    assert.strictEqual(pushQueue.getDeadLetterPushJobs().length, 1);
-    assert.strictEqual(pushQueue.getDeadLetterPushJobs()[0].queue, pushQueue.PUSH_DLQ_NAME);
+    // Attempt 2 -> retries exhausted -> routed to RabbitMQ DLQ
+    assert.strictEqual(await mockAmqp.drainNext(pushQueue.PUSH_QUEUE_NAME), true);
+    assert.strictEqual(mockAmqp.getQueueMessages(pushQueue.PUSH_QUEUE_NAME).length, 0);
+    const dlqMsgs = mockAmqp.getQueueMessages(pushQueue.PUSH_DLQ_NAME);
+    assert.strictEqual(dlqMsgs.length, 1);
+    assert.strictEqual(dlqMsgs[0].json.queue, pushQueue.PUSH_DLQ_NAME);
     assert.strictEqual(sentryService.getCapturedEvents().length, 1);
   });
 
@@ -453,20 +461,15 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     await pushQueue.enqueuePushNotificationJob(
       userId,
       { title: 'Sync complete', body: 'Done' },
-      { dedupeKey: 'sync:daily:2026-11-20' }
+      { dedupeKey: 'sync:webhook:2026-11-20' }
     );
     await pushQueue.enqueuePushNotificationJob(
       userId,
       { title: 'Sync complete', body: 'Done' },
-      { dedupeKey: 'sync:daily:2026-11-20' }
+      { dedupeKey: 'sync:webhook:2026-11-20' }
     );
 
-    const first = await pushQueue.processNextPushJob();
-    const second = await pushQueue.processNextPushJob();
-
-    assert.strictEqual(first.status, 'completed');
-    assert.strictEqual(first.deliveredCount, 1);
-    assert.strictEqual(second.status, 'deduplicated');
+    await mockAmqp.drainAll(pushQueue.PUSH_QUEUE_NAME);
     assert.strictEqual(sendCount, 1);
   });
 
@@ -508,13 +511,18 @@ describe('PostgreSQL PushSubscription Storage, RabbitMQ Push Queue & Self-Healin
     assert.strictEqual(subRes.out.statusCode, 201);
     assert.strictEqual(subRes.out.body.count, 1);
 
-    // 3. Test notification via RabbitMQ
+    // 3. Test notification published to RabbitMQ and delivered asynchronously by push consumer
     const testRes = makeRes();
     await pushController.sendTestNotification({ user: { id: userId } }, testRes, (err) => {
       throw err;
     });
+    assert.strictEqual(testRes.out.statusCode, 202);
     assert.strictEqual(testRes.out.body.ok, true);
-    assert.strictEqual(testRes.out.body.delivery.deliveredCount, 1);
+    assert.strictEqual(testRes.out.body.queued, true);
+    assert.ok(testRes.out.body.jobId);
+
+    const delivered = await mockAmqp.drainNext(pushQueue.PUSH_QUEUE_NAME);
+    assert.strictEqual(delivered, true);
 
     // 4. Unsubscribe
     const unsubRes = makeRes();

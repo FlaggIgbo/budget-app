@@ -65,10 +65,10 @@ export const unsubscribe = async (req, res, next) => {
   }
 };
 
-// POST /api/push/test — enqueue a test notification into RabbitMQ and process delivery
+// POST /api/push/test — publish a test notification event onto RabbitMQ for async delivery
 export const sendTestNotification = async (req, res, next) => {
   try {
-    const job = await pushQueue.enqueuePushNotificationJob(
+    const event = await pushQueue.enqueuePushNotificationJob(
       req.user.id,
       {
         title: 'Budget App Notifications Enabled',
@@ -81,18 +81,10 @@ export const sendTestNotification = async (req, res, next) => {
       }
     );
 
-    const result = await pushQueue.processNextPushJob();
-
-    res.json({
+    res.status(202).json({
       ok: true,
-      jobId: job.id,
-      delivery: result
-        ? {
-            status: result.status,
-            deliveredCount: result.deliveredCount || 0,
-            prunedCount: result.prunedCount || 0,
-          }
-        : null,
+      jobId: event.id,
+      queued: true,
     });
   } catch (err) {
     next(err);

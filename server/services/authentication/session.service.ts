@@ -2,12 +2,13 @@ import type { ServiceResult } from '../../types';
 import crypto = require('crypto');
 import { createClient } from 'redis';
 import db = require('../../models');
+import eventBus = require('../events/eventBus.service');
 import queueService = require('../jobs/queue.service');
 
 // ============================================================================
 // REDIS SESSION SERVICE
 // Stores auth session tokens in Redis under `session:{token}` with a 1-hour TTL
-// (3,600 seconds) and enqueues a high-priority RabbitMQ sync job on login.
+// (3,600 seconds) and emits a `user.logged_in` domain event onto RabbitMQ.
 // ============================================================================
 
 const SESSION_PREFIX = 'session:';
@@ -91,12 +92,16 @@ async function issueSessionForUser(user) {
     EX: ttlSeconds,
   });
 
-  // Trigger prioritized RabbitMQ balance/transaction sync job upon successful login
+  // Emit high-priority `user.logged_in` domain event onto RabbitMQ
   try {
-    await queueService.enqueueUserSyncJob(user.id, {
-      source: 'login',
-      priority: queueService.PRIORITY_HIGH,
-    });
+    await eventBus.publishEvent(
+      eventBus.DomainEvents.USER_LOGGED_IN,
+      {
+        userId: user.id,
+        source: 'login',
+      },
+      { priority: queueService.PRIORITY_HIGH }
+    );
   } catch {
     // Allow login to succeed even if RabbitMQ is unreachable
   }

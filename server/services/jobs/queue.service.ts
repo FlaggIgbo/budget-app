@@ -1,137 +1,139 @@
+import db = require('../../models');
 import envConfigModule = require('../../config/env.config');
 const { getEnvConfig } = envConfigModule;
 import syncWorker = require('../banking/sync.worker');
+import eventBus = require('../events/eventBus.service');
 import sentryService = require('../infrastructure/sentry.service');
-import pushQueue = require('../../push_service/push.queue');
 
 // ============================================================================
-// RABBITMQ BALANCE & TRANSACTION SYNC QUEUE SERVICE
-// Processes bank balance & transaction sync jobs from two sources:
-//   1. High-priority login trigger (PRIORITY_HIGH = 10) when a user logs in
-//   2. Normal-priority daily CRON job (PRIORITY_NORMAL = 1) once a day
-// Dispatches follow-up notifications to the Push Notification microservice queue.
+// RABBITMQ BANK SYNC CONSUMER & QUEUE SERVICE
+// Subscribes `budget_app.bank_sync_jobs` (priority queue) to domain events on
+// the `budget_app.events` topic exchange:
+//   - `user.logged_in` (PRIORITY_HIGH = 10)
+//   - `plaid.webhook.sync_updates_available` (PRIORITY_WEBHOOK = 5)
+//   - `bank.enrollment.created` (PRIORITY_HIGH = 10)
+//   - `bank.sync.requested` (PRIORITY_NORMAL = 1)
+// Emits `bank.sync.completed` onto the event bus upon completion without any
+// direct coupling to the push notification service.
 // ============================================================================
 
 const SYNC_QUEUE_NAME = 'budget_app.bank_sync_jobs';
-const PRIORITY_HIGH = 10; // Triggered immediately upon user login
-const PRIORITY_NORMAL = 1; // Triggered by the once-a-day CRON scheduler
+const PRIORITY_HIGH = 10; // Triggered immediately upon user login or new bank enrollment
+const PRIORITY_WEBHOOK = 5; // Triggered by Plaid webhooks (SYNC_UPDATES_AVAILABLE, etc.)
+const PRIORITY_NORMAL = 1; // Triggered by manual/explicit sync requests
 
-// In-memory priority queue buffer (keeps jobs ordered by priority desc, then FIFO)
-const pendingJobs = [];
-let customPublisher = null;
+const SUBSCRIBED_ROUTING_KEYS = [
+  eventBus.DomainEvents.USER_LOGGED_IN,
+  eventBus.DomainEvents.PLAID_SYNC_UPDATES_AVAILABLE,
+  eventBus.DomainEvents.BANK_ENROLLMENT_CREATED,
+  eventBus.DomainEvents.BANK_SYNC_REQUESTED,
+];
 
-function setQueuePublisher(publisher) {
-  customPublisher = publisher;
-}
-
-// Enqueue a balance & transaction sync job for a user in RabbitMQ
+// Publish a `bank.sync.requested` domain event onto RabbitMQ
 async function enqueueUserSyncJob(userId, options: Record<string, any> = {}) {
+  const source = options.source || 'manual';
   const priority =
     typeof options.priority === 'number'
       ? options.priority
-      : options.source === 'login'
+      : source === 'login' || source === 'enrollment'
         ? PRIORITY_HIGH
-        : PRIORITY_NORMAL;
-  const source = options.source || 'manual';
+        : source === 'plaid_webhook'
+          ? PRIORITY_WEBHOOK
+          : PRIORITY_NORMAL;
 
-  const job = {
-    id: `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    queue: SYNC_QUEUE_NAME,
-    userId,
-    source,
-    priority,
-    enqueuedAt: new Date().toISOString(),
-  };
-
-  try {
-    if (customPublisher && typeof customPublisher.publish === 'function') {
-      await customPublisher.publish(SYNC_QUEUE_NAME, job, { priority, persistent: true });
-    } else {
-      // TODO: Connect to RabbitMQ via amqplib (`amqp.connect(getEnvConfig().rabbitmqUrl)`),
-      // assert priority queue `channel.assertQueue(SYNC_QUEUE_NAME, { durable: true, arguments: { 'x-max-priority': 10 } })`,
-      // and publish `Buffer.from(JSON.stringify(job))` with `{ persistent: true, priority }`.
-      pendingJobs.push(job);
-      pendingJobs.sort((a, b) => b.priority - a.priority);
-    }
-
-    return job;
-  } catch (err) {
-    sentryService.captureException(err, {
-      service: 'queue.service',
-      action: 'enqueueUserSyncJob',
+  return await eventBus.publishEvent(
+    eventBus.DomainEvents.BANK_SYNC_REQUESTED,
+    {
       userId,
+      enrollmentId: options.enrollmentId || null,
       source,
-    });
-    throw err;
-  }
+    },
+    { priority }
+  );
 }
 
-// Process the highest-priority pending sync job via the Sync Worker
-async function processNextSyncJob() {
-  if (pendingJobs.length === 0) {
-    return null;
+// Handle a single bank sync domain event consumed from RabbitMQ
+async function handleSyncEvent(envelope) {
+  const payload = envelope?.payload || {};
+  const userId = payload.userId;
+  const enrollmentId = payload.enrollmentId || null;
+  const source = payload.source || envelope.type || 'event';
+
+  if (!userId) {
+    return {
+      eventId: envelope?.id,
+      status: 'ignored',
+      syncedCount: 0,
+    };
   }
 
-  const job = pendingJobs.shift();
-  try {
-    const synced = await syncWorker.syncAllUserEnrollments(job.userId);
-    const syncedCount = Array.isArray(synced) ? synced.length : 0;
+  let syncedCount = 0;
 
-    // Enqueue a push notification into the push microservice queue when bank accounts finish syncing
-    if (syncedCount > 0) {
-      try {
-        const dayKey = new Date().toISOString().slice(0, 10);
-        await pushQueue.enqueuePushNotificationJob(
-          job.userId,
-          {
-            title: 'Bank accounts synced',
-            body: `Updated balances and transactions across ${syncedCount} connected ${syncedCount === 1 ? 'bank' : 'banks'}.`,
-            url: '/dashboard',
-            tag: 'budget-app-bank-sync',
-          },
-          {
-            source: `sync:${job.source}`,
-            dedupeKey: `sync:${job.source}:${dayKey}`,
-          }
-        );
-      } catch {
-        // Non-fatal: bank sync still succeeded even if push enqueue failed
-      }
+  if (enrollmentId) {
+    const enrollment = await db.Enrollment.findOne({
+      where: { enrollmentId, userId },
+    });
+    if (enrollment) {
+      await syncWorker.syncEnrollmentData(enrollment, userId);
+      syncedCount = 1;
     }
-
-    return {
-      ...job,
-      status: 'completed',
-      syncedCount,
-    };
-  } catch (err) {
-    sentryService.captureException(err, {
-      service: 'queue.service',
-      action: 'processNextSyncJob',
-      jobId: job.id,
-      userId: job.userId,
-    });
-    return {
-      ...job,
-      status: 'failed',
-      error: err.message,
-    };
+  } else {
+    const synced = await syncWorker.syncAllUserEnrollments(userId);
+    syncedCount = Array.isArray(synced) ? synced.length : 0;
   }
+
+  // Emit `bank.sync.completed` domain event so downstream consumers (e.g. Push) react independently
+  if (syncedCount > 0) {
+    try {
+      await eventBus.publishEvent(eventBus.DomainEvents.BANK_SYNC_COMPLETED, {
+        userId,
+        enrollmentId,
+        source,
+        syncedCount,
+        completedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      sentryService.captureException(err, {
+        service: 'queue.service',
+        action: 'publishBankSyncCompleted',
+        userId,
+        source,
+      });
+    }
+  }
+
+  return {
+    eventId: envelope?.id,
+    userId,
+    enrollmentId,
+    source,
+    status: 'completed',
+    syncedCount,
+  };
 }
 
-function getPendingJobs() {
-  return [...pendingJobs];
-}
-
-function clearPendingJobs() {
-  pendingJobs.length = 0;
+// Start the active RabbitMQ consumer for `budget_app.bank_sync_jobs`
+async function startSyncConsumer() {
+  return await eventBus.subscribeToEvents(
+    SYNC_QUEUE_NAME,
+    SUBSCRIBED_ROUTING_KEYS,
+    async (envelope) => {
+      await handleSyncEvent(envelope);
+    },
+    {
+      prefetch: 5,
+      arguments: { 'x-max-priority': PRIORITY_HIGH },
+    }
+  );
 }
 
 function getQueueConfig() {
   const { rabbitmqUrl } = getEnvConfig();
   return {
     rabbitmqUrl,
+    exchangeName: eventBus.EVENTS_EXCHANGE,
     queueName: SYNC_QUEUE_NAME,
+    routingKeys: [...SUBSCRIBED_ROUTING_KEYS],
     maxPriority: PRIORITY_HIGH,
   };
 }
@@ -139,11 +141,11 @@ function getQueueConfig() {
 export = {
   SYNC_QUEUE_NAME,
   PRIORITY_HIGH,
+  PRIORITY_WEBHOOK,
   PRIORITY_NORMAL,
-  setQueuePublisher,
+  SUBSCRIBED_ROUTING_KEYS,
   enqueueUserSyncJob,
-  processNextSyncJob,
-  getPendingJobs,
-  clearPendingJobs,
+  handleSyncEvent,
+  startSyncConsumer,
   getQueueConfig,
 };

@@ -6,6 +6,8 @@ import db = require('../models');
 import otpService = require('../services/authentication/otp.service');
 import passkeyService = require('../services/authentication/passkey.service');
 import sessionService = require('../services/authentication/session.service');
+import eventBus = require('../services/events/eventBus.service');
+import { createMockAmqpBroker } from './helpers/mockAmqp';
 
 function encodeCborHeader(majorType, length) {
   const prefix = majorType << 5;
@@ -324,6 +326,8 @@ describe('Passkey Service End-to-End Flows (Signup, Phone Login, Profile Add/Del
     otpService.setClient(mockRedis);
     passkeyService.setClient(mockRedis);
     sessionService.setClient(mockRedis);
+    const mockAmqp = createMockAmqpBroker();
+    eventBus.setChannelFactory(mockAmqp.channelFactory);
 
     db.User.findOne = async ({ where }) => {
       for (const user of usersById.values()) {
@@ -349,6 +353,7 @@ describe('Passkey Service End-to-End Flows (Signup, Phone Login, Profile Add/Del
     otpService.setClient(null);
     passkeyService.setClient(null);
     sessionService.setClient(null);
+    eventBus.setChannelFactory(null);
   });
 
   it('requires passkey during signup, supports skipping on error, and authenticates by phone passkey on login', async () => {

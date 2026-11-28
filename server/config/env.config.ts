@@ -75,6 +75,7 @@ function getEnvConfig() {
     port: parseInt(process.env.PORT || '4000', 10),
     corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:4200',
     plaidEnv: getPlaidEnvironment(),
+    plaidWebhookUrl: (process.env.PLAID_WEBHOOK_URL || '').trim(),
     allowedPlaidEnvsInDev: ALLOWED_PLAID_ENVS_IN_DEV,
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
     rabbitmqUrl: process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672',

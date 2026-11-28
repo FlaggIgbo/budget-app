@@ -1,4 +1,5 @@
 import bankService = require('../services/banking/bank.service');
+import plaidWebhook = require('../services/banking/plaid.webhook');
 
 // ============================================================================
 // BANK CONTROLLER (API SERVER ENDPOINTS)
@@ -208,6 +209,29 @@ export const deleteEnrollment = async (req, res, next) => {
     }
 
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /webhooks/plaid -> Verify Plaid-Verification JWT and emit domain events onto RabbitMQ
+export const handlePlaidWebhook = async (req, res, next) => {
+  try {
+    const result = await plaidWebhook.handlePlaidWebhook(req.body, {
+      rawBody: req.rawBody,
+      verificationHeader: req.get('Plaid-Verification'),
+    });
+
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      ignored: Boolean(result.ignored),
+      eventId: result.eventId || null,
+      eventType: result.eventType || null,
+    });
   } catch (err) {
     next(err);
   }

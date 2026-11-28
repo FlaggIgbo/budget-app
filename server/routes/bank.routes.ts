@@ -25,4 +25,7 @@ export = (app) => {
   // Dashboard & insights
   app.get('/api/bank/net-worth', requireAuth, controller.getNetWorth);
   app.get('/api/bank/dashboard-summary', requireAuth, controller.getDashboardSummary);
+
+  // Plaid webhook ingestion (authenticated via Plaid-Verification ES256 JWT, not user session)
+  app.post('/api/bank/webhooks/plaid', controller.handlePlaidWebhook);
 };

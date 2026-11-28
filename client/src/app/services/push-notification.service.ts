@@ -30,7 +30,8 @@ export interface VapidKeyResponse {
 export interface PushTestResponse {
   ok: boolean;
   jobId: string;
-  delivery: {
+  queued?: boolean;
+  delivery?: {
     status: string;
     deliveredCount: number;
     prunedCount: number;
