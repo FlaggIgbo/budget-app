@@ -214,7 +214,7 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       },
     });
 
-    // Shared mock Redis client for 5-min OTP codes, passkey challenges, signup tokens, and 1h Auth Sessions
+    // Shared mock Redis client for 5-min OTP codes, rate-limit counters, passkey challenges, signup tokens, and 1h Auth Sessions
     const mockRedisClient = {
       set: async (key, value, options) => {
         fakeRedisStore.set(key, { value, ttl: options?.EX || null });
@@ -223,8 +223,32 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
         const entry = fakeRedisStore.get(key);
         return entry ? entry.value : null;
       },
+      getDel: async (key) => {
+        const entry = fakeRedisStore.get(key);
+        fakeRedisStore.delete(key);
+        return entry ? entry.value : null;
+      },
       del: async (key) => {
         fakeRedisStore.delete(key);
+      },
+      incr: async (key) => {
+        const entry = fakeRedisStore.get(key);
+        const nextVal = (entry ? Number.parseInt(entry.value, 10) || 0 : 0) + 1;
+        fakeRedisStore.set(key, { value: String(nextVal), ttl: entry?.ttl ?? null });
+        return nextVal;
+      },
+      expire: async (key, seconds) => {
+        const entry = fakeRedisStore.get(key);
+        if (entry) {
+          entry.ttl = seconds;
+          return 1;
+        }
+        return 0;
+      },
+      ttl: async (key) => {
+        const entry = fakeRedisStore.get(key);
+        if (!entry) return -2;
+        return entry.ttl ?? -1;
       },
     };
 
@@ -282,6 +306,51 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       assert.strictEqual(sentSmsMessages.length, 1);
       assert.strictEqual(sentSmsMessages[0].to, phone);
       assert.ok(sentSmsMessages[0].body.includes(redisEntry.value));
+    });
+
+    it('enforces US (+1) phone numbers server-side and rejects international numbers', async () => {
+      const ukRes = await request(app).post('/api/otp/request').send({ phone: '+442079460958' });
+      assert.strictEqual(ukRes.status, 400);
+      assert.ok(ukRes.body.error?.includes('US (+1)'));
+
+      const formattedUsRes = await request(app)
+        .post('/api/otp/request')
+        .send({ phone: '(555) 222-3333' });
+      assert.strictEqual(formattedUsRes.status, 200);
+      assert.strictEqual(formattedUsRes.body.ok, true);
+    });
+
+    it('rate limits OTP requests per phone number in Redis with 429 and Retry-After', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.PLAID_ENV = 'production';
+
+      const phone = '+15552224444';
+      for (let i = 0; i < otpService.OTP_MAX_REQUESTS_PER_PHONE; i++) {
+        const res = await request(app).post('/api/otp/request').send({ phone });
+        assert.strictEqual(res.status, 200);
+      }
+
+      const throttled = await request(app).post('/api/otp/request').send({ phone });
+      assert.strictEqual(throttled.status, 429);
+      assert.ok(throttled.body.error?.toLowerCase().includes('phone number'));
+      assert.ok(throttled.headers['retry-after']);
+      assert.strictEqual(sentSmsMessages.length, otpService.OTP_MAX_REQUESTS_PER_PHONE);
+    });
+
+    it('rate limits OTP requests per IP address across different phone numbers', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.PLAID_ENV = 'production';
+
+      for (let i = 0; i < otpService.OTP_MAX_REQUESTS_PER_IP; i++) {
+        const phone = `+155530000${String(i).padStart(2, '0')}`;
+        const res = await request(app).post('/api/otp/request').send({ phone });
+        assert.strictEqual(res.status, 200);
+      }
+
+      const throttled = await request(app).post('/api/otp/request').send({ phone: '+15553000099' });
+      assert.strictEqual(throttled.status, 429);
+      assert.ok(throttled.body.error?.toLowerCase().includes('ip address'));
+      assert.ok(throttled.headers['retry-after']);
     });
   });
 
@@ -523,6 +592,53 @@ describe('Auth API (Phone OTP, Passkey WebAuthn, Signup Flow, Redis 1h Sessions,
       const res = await request(app).post('/api/otp/verify').send({ phone, otp: '654321' });
       assert.strictEqual(res.status, 401);
       assert.ok(res.body.error?.toLowerCase().includes('invalid or expired'));
+    });
+
+    it('invalidates the active OTP and returns 429 after max failed verification attempts', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.PLAID_ENV = 'production';
+
+      const phone = '+15556668888';
+      await request(app).post('/api/otp/request').send({ phone });
+      const validCode = await otpService.getOtp(phone);
+      assert.ok(validCode);
+      const wrongCode = validCode === '000000' ? '111111' : '000000';
+
+      for (let i = 1; i < otpService.OTP_MAX_VERIFY_ATTEMPTS; i++) {
+        const res = await request(app).post('/api/otp/verify').send({ phone, otp: wrongCode });
+        assert.strictEqual(res.status, 401);
+      }
+
+      // 5th failed attempt triggers 429 and deletes the active OTP
+      const lockedRes = await request(app).post('/api/otp/verify').send({ phone, otp: wrongCode });
+      assert.strictEqual(lockedRes.status, 429);
+      assert.ok(lockedRes.body.error?.toLowerCase().includes('too many failed'));
+      assert.strictEqual(await otpService.getOtp(phone), null);
+
+      // Even the previously valid code is now rejected
+      const afterLockRes = await request(app)
+        .post('/api/otp/verify')
+        .send({ phone, otp: validCode });
+      assert.strictEqual(afterLockRes.status, 429);
+    });
+
+    it('prevents concurrent OTP replay using atomic GETDEL consumption', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.PLAID_ENV = 'production';
+
+      const phone = '+15556669999';
+      await request(app).post('/api/otp/request').send({ phone });
+      const validCode = await otpService.getOtp(phone);
+      assert.ok(validCode);
+
+      const [res1, res2] = await Promise.all([
+        request(app).post('/api/otp/verify').send({ phone, otp: validCode }),
+        request(app).post('/api/otp/verify').send({ phone, otp: validCode }),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort();
+      assert.deepStrictEqual(statuses, [200, 401]);
+      assert.strictEqual(await otpService.getOtp(phone), null);
     });
   });
 

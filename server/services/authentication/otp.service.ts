@@ -10,9 +10,16 @@ import sessionService = require('./session.service');
 import passkeyService = require('./passkey.service');
 
 const OTP_PREFIX = 'otp:';
+const OTP_ATTEMPTS_PREFIX = 'otp:attempts:';
+const OTP_PHONE_RATE_LIMIT_PREFIX = 'otp:rl:phone:';
+const OTP_IP_RATE_LIMIT_PREFIX = 'otp:rl:ip:';
 const SIGNUP_PREFIX = 'signup:';
 const DEFAULT_TTL_SECONDS = 5 * 60; // 5 minutes in seconds
 const SIGNUP_TTL_SECONDS = 15 * 60; // 15 minutes in seconds
+const OTP_RATE_LIMIT_WINDOW_SECONDS = 15 * 60; // 15-minute rate-limit window
+const OTP_MAX_REQUESTS_PER_PHONE = 3;
+const OTP_MAX_REQUESTS_PER_IP = 10;
+const OTP_MAX_VERIFY_ATTEMPTS = 5;
 
 const SANDBOX_PHONE = '+15551234567';
 const SANDBOX_OTP = '123456';
@@ -57,6 +64,34 @@ function getOtpKey(identifier, scope = null) {
   return OTP_PREFIX + identifier;
 }
 
+// Build Redis key for failed OTP verification attempt tracking
+function getOtpAttemptsKey(identifier, scope = null) {
+  if (scope) {
+    return `${OTP_ATTEMPTS_PREFIX}${scope}:${identifier}`;
+  }
+  return OTP_ATTEMPTS_PREFIX + identifier;
+}
+
+// Build Redis key for per-phone OTP request rate limiting
+function getPhoneRateLimitKey(phone) {
+  return OTP_PHONE_RATE_LIMIT_PREFIX + phone;
+}
+
+// Build Redis key for per-IP OTP request rate limiting
+function getIpRateLimitKey(ip) {
+  return OTP_IP_RATE_LIMIT_PREFIX + ip;
+}
+
+// Constant-time string comparison to prevent timing side-channels on OTP verification
+function constantTimeEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 // Build Redis key for a pending signup session: signup:{token}
 function getSignupKey(token) {
   return SIGNUP_PREFIX + token;
@@ -85,11 +120,12 @@ function setClient(customClient) {
   redisClient = customClient;
 }
 
-// SET code in Redis with automatic expiration (otp:{identifier} TTL)
+// SET code in Redis with automatic expiration (otp:{identifier} TTL) and reset failed verify attempts
 async function saveOtp(identifier, code, ttlSeconds = DEFAULT_TTL_SECONDS, scope = null) {
   const client = await getClient();
   const key = getOtpKey(identifier, scope);
   await client.set(key, code, { EX: ttlSeconds });
+  await client.del(getOtpAttemptsKey(identifier, scope));
 }
 
 // GET stored OTP code for an identifier from Redis
@@ -99,11 +135,139 @@ async function getOtp(identifier, scope = null) {
   return await client.get(key);
 }
 
+// Atomically GET and DEL stored OTP code via Redis GETDEL for single-use invalidation
+async function consumeOtpAtomically(identifier, scope = null): Promise<string | null> {
+  const client = await getClient();
+  const key = getOtpKey(identifier, scope);
+  if (typeof client.getDel === 'function') {
+    return await client.getDel(key);
+  }
+  const value = await client.get(key);
+  if (value !== null) {
+    await client.del(key);
+  }
+  return value;
+}
+
 // DEL OTP code for an identifier from Redis
 async function deleteOtp(identifier, scope = null) {
   const client = await getClient();
   const key = getOtpKey(identifier, scope);
   await client.del(key);
+}
+
+// Increment a Redis counter with a fixed-window TTL (uses atomic INCR + EXPIRE when available)
+async function incrementCounter(
+  key: string,
+  windowSeconds: number
+): Promise<{ count: number; retryAfterSeconds: number }> {
+  const client = await getClient();
+  let count: number;
+
+  if (typeof client.incr === 'function') {
+    count = Number(await client.incr(key));
+    if (count === 1 && typeof client.expire === 'function') {
+      await client.expire(key, windowSeconds);
+    }
+  } else {
+    const existing = await client.get(key);
+    count = (existing ? Number.parseInt(existing, 10) || 0 : 0) + 1;
+    await client.set(key, String(count), { EX: windowSeconds });
+  }
+
+  let retryAfterSeconds = windowSeconds;
+  if (typeof client.ttl === 'function') {
+    const remaining = Number(await client.ttl(key));
+    if (Number.isFinite(remaining) && remaining > 0) {
+      retryAfterSeconds = remaining;
+    }
+  }
+
+  return { count, retryAfterSeconds };
+}
+
+// Enforce Redis per-IP and per-phone rate limits on OTP send requests
+async function checkOtpRequestRateLimit(
+  phone?: string | null,
+  ip?: string | null
+): Promise<ServiceResult | null> {
+  const normalizedIp = typeof ip === 'string' ? ip.trim() : '';
+  if (normalizedIp) {
+    const ipKey = getIpRateLimitKey(normalizedIp);
+    const { count, retryAfterSeconds } = await incrementCounter(
+      ipKey,
+      OTP_RATE_LIMIT_WINDOW_SECONDS
+    );
+    if (count > OTP_MAX_REQUESTS_PER_IP) {
+      return {
+        error: 'Too many verification code requests from this IP address. Please try again later.',
+        status: 429,
+        retryAfterSeconds,
+      };
+    }
+  }
+
+  if (phone) {
+    const phoneKey = getPhoneRateLimitKey(phone);
+    const { count, retryAfterSeconds } = await incrementCounter(
+      phoneKey,
+      OTP_RATE_LIMIT_WINDOW_SECONDS
+    );
+    if (count > OTP_MAX_REQUESTS_PER_PHONE) {
+      return {
+        error: 'Too many verification code requests for this phone number. Please try again later.',
+        status: 429,
+        retryAfterSeconds,
+      };
+    }
+  }
+
+  return null;
+}
+
+// Verify OTP with max-attempts enforcement, constant-time comparison, and atomic GETDEL consumption
+async function verifyAndConsumeOtp(
+  identifier: string,
+  code: string,
+  scope: string | null = null
+): Promise<ServiceResult> {
+  const client = await getClient();
+  const attemptsKey = getOtpAttemptsKey(identifier, scope);
+
+  const existingAttemptsRaw = await client.get(attemptsKey);
+  const existingAttempts = existingAttemptsRaw ? Number.parseInt(existingAttemptsRaw, 10) || 0 : 0;
+  if (existingAttempts >= OTP_MAX_VERIFY_ATTEMPTS) {
+    await deleteOtp(identifier, scope);
+    return {
+      error: 'Too many failed verification attempts. Please request a new code.',
+      status: 429,
+    };
+  }
+
+  if (isSandboxMode() && constantTimeEquals(code, SANDBOX_OTP)) {
+    await client.del(attemptsKey);
+    return { ok: true };
+  }
+
+  const storedCode = await getOtp(identifier, scope);
+  if (storedCode && constantTimeEquals(storedCode, code)) {
+    const consumedCode = await consumeOtpAtomically(identifier, scope);
+    if (consumedCode && constantTimeEquals(consumedCode, code)) {
+      await client.del(attemptsKey);
+      return { ok: true };
+    }
+  }
+
+  const { count } = await incrementCounter(attemptsKey, DEFAULT_TTL_SECONDS);
+  if (count >= OTP_MAX_VERIFY_ATTEMPTS) {
+    await deleteOtp(identifier, scope);
+    return {
+      error: 'Too many failed verification attempts. Please request a new code.',
+      status: 429,
+    };
+  }
+
+  return { error: 'Invalid or expired OTP', status: 401 };
 }
 
 // Store a short-lived pending signup token proving phone OTP ownership
@@ -150,12 +314,12 @@ async function deletePendingSignup(token) {
   await client.del(getSignupKey(token.trim()));
 }
 
-// Extract and validate a phone number
+// Extract and validate a US (+1) phone number
 function parsePhoneInput(input): ServiceResult {
   const rawPhone = typeof input === 'string' ? input : input?.phone || '';
   const phone = db.User.normalizePhone(rawPhone);
   if (!db.User.isValidPhone(phone)) {
-    return { error: 'Valid phone number required', status: 400 };
+    return { error: 'Valid US (+1) phone number required', status: 400 };
   }
   return { phone };
 }
@@ -171,10 +335,15 @@ function parseEmailInput(input): ServiceResult {
 }
 
 // Request login/signup OTP via Phone SMS (Twilio)
-async function requestOtp(input): Promise<ServiceResult> {
+async function requestOtp(input, options: { ip?: string } = {}): Promise<ServiceResult> {
   const parsed = parsePhoneInput(input);
   if (parsed.error) {
     return parsed;
+  }
+
+  const rateLimitError = await checkOtpRequestRateLimit(parsed.phone, options?.ip);
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   // In sandbox/lower environments, use dummy code without sending real SMS
@@ -203,19 +372,9 @@ async function verifyOtp(input, rawCode): Promise<ServiceResult> {
     return { error: 'OTP required', status: 400 };
   }
 
-  let verified = false;
-  if (isSandboxMode() && code === SANDBOX_OTP) {
-    verified = true;
-  } else {
-    const storedCode = await getOtp(parsed.phone);
-    if (storedCode && storedCode === code) {
-      await deleteOtp(parsed.phone);
-      verified = true;
-    }
-  }
-
-  if (!verified) {
-    return { error: 'Invalid or expired OTP', status: 401 };
+  const verification = await verifyAndConsumeOtp(parsed.phone, code);
+  if (verification.error) {
+    return verification;
   }
 
   const existingUser = await db.User.findOne({ where: { phone: parsed.phone } });
@@ -322,19 +481,9 @@ async function verifySignupEmailOtp({
     return { error: 'Email address is already associated with another account', status: 409 };
   }
 
-  let verified = false;
-  if (isSandboxMode() && code === SANDBOX_OTP) {
-    verified = true;
-  } else {
-    const storedCode = await getOtp(parsedEmail.email, 'signup');
-    if (storedCode && storedCode === code) {
-      await deleteOtp(parsedEmail.email, 'signup');
-      verified = true;
-    }
-  }
-
-  if (!verified) {
-    return { error: 'Invalid or expired OTP', status: 401 };
+  const verification = await verifyAndConsumeOtp(parsedEmail.email, code, 'signup');
+  if (verification.error) {
+    return verification;
   }
 
   const updatedPending = {
@@ -413,19 +562,9 @@ async function completeSignup({
       return { error: 'OTP required', status: 400 };
     }
 
-    let verified = false;
-    if (isSandboxMode() && code === SANDBOX_OTP) {
-      verified = true;
-    } else {
-      const storedCode = await getOtp(verifiedEmail, 'signup');
-      if (storedCode && storedCode === code) {
-        await deleteOtp(verifiedEmail, 'signup');
-        verified = true;
-      }
-    }
-
-    if (!verified) {
-      return { error: 'Invalid or expired OTP', status: 401 };
+    const verification = await verifyAndConsumeOtp(verifiedEmail, code, 'signup');
+    if (verification.error) {
+      return verification;
     }
   }
 
@@ -504,7 +643,11 @@ function parseContactChangeInput(input): ServiceResult {
 }
 
 // Request OTP to verify a new email address or phone number before updating a logged-in user's profile
-async function requestContactOtp(userId, input): Promise<ServiceResult> {
+async function requestContactOtp(
+  userId,
+  input,
+  options: { ip?: string } = {}
+): Promise<ServiceResult> {
   if (!userId) {
     return { error: 'Not authenticated', status: 401 };
   }
@@ -529,6 +672,11 @@ async function requestContactOtp(userId, input): Promise<ServiceResult> {
       return { error: 'Email address is already associated with another account', status: 409 };
     }
 
+    const rateLimitError = await checkOtpRequestRateLimit(null, options?.ip);
+    if (rateLimitError) {
+      return rateLimitError;
+    }
+
     if (isSandboxMode()) {
       return { ok: true, message: 'Verification code sent (sandbox: use 123456)' };
     }
@@ -551,6 +699,11 @@ async function requestContactOtp(userId, input): Promise<ServiceResult> {
   const existingUser = await db.User.findOne({ where: { phone: parsed.value } });
   if (existingUser && existingUser.id !== userId) {
     return { error: 'Phone number is already associated with another account', status: 409 };
+  }
+
+  const rateLimitError = await checkOtpRequestRateLimit(parsed.value, options?.ip);
+  if (rateLimitError) {
+    return rateLimitError;
   }
 
   if (isSandboxMode()) {
@@ -609,19 +762,9 @@ async function verifyContactOtp(userId, input, rawCode): Promise<ServiceResult> 
   }
 
   const scope = `contact:${userId}`;
-  let verified = false;
-  if (isSandboxMode() && code === SANDBOX_OTP) {
-    verified = true;
-  } else {
-    const storedCode = await getOtp(parsed.value, scope);
-    if (storedCode && storedCode === code) {
-      await deleteOtp(parsed.value, scope);
-      verified = true;
-    }
-  }
-
-  if (!verified) {
-    return { error: 'Invalid or expired OTP', status: 401 };
+  const verification = await verifyAndConsumeOtp(parsed.value, code, scope);
+  if (verification.error) {
+    return verification;
   }
 
   if (parsed.type === 'email') {
@@ -639,17 +782,25 @@ async function verifyContactOtp(userId, input, rawCode): Promise<ServiceResult> 
 export = {
   DEFAULT_TTL_SECONDS,
   SIGNUP_TTL_SECONDS,
+  OTP_RATE_LIMIT_WINDOW_SECONDS,
+  OTP_MAX_REQUESTS_PER_PHONE,
+  OTP_MAX_REQUESTS_PER_IP,
+  OTP_MAX_VERIFY_ATTEMPTS,
   SANDBOX_PHONE,
   SANDBOX_OTP,
   isSandboxMode,
   generateCode,
   generateSignupToken,
   getOtpKey,
+  getOtpAttemptsKey,
+  getPhoneRateLimitKey,
+  getIpRateLimitKey,
   getSignupKey,
   getClient,
   setClient,
   saveOtp,
   getOtp,
+  consumeOtpAtomically,
   deleteOtp,
   createPendingSignup,
   getPendingSignup,

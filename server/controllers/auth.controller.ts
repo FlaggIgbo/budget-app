@@ -15,11 +15,18 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
+function getClientIp(req): string {
+  return (req.ip || req.socket?.remoteAddress || '').trim();
+}
+
 // POST /api/otp/request - Generate 6-digit code, store in Redis with TTL, and send via Twilio SMS
 export const requestOtp = async (req, res, next) => {
   try {
-    const result = await otpService.requestOtp(req.body?.phone);
+    const result = await otpService.requestOtp(req.body?.phone, { ip: getClientIp(req) });
     if (result.error) {
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
       return res.status(result.status || 400).json({ error: result.error });
     }
 

@@ -33,13 +33,19 @@ function isValidEmail(email) {
   return true;
 }
 
-// Normalize phone number to E.164 format (e.g. "+15551234567")
+const ALLOWED_PHONE_CHARS = /^\+?[\d\s().-]+$/;
+
+// Normalize US (+1) phone number to E.164 format (e.g. "+15551234567")
 function normalizePhone(phone) {
   if (!phone || typeof phone !== 'string') {
     return '';
   }
 
   const trimmed = phone.trim();
+  if (!trimmed || !ALLOWED_PHONE_CHARS.test(trimmed)) {
+    return '';
+  }
+
   const hasPlus = trimmed.startsWith('+');
   const digits = trimmed.replace(/\D/g, '');
 
@@ -48,7 +54,10 @@ function normalizePhone(phone) {
   }
 
   if (hasPlus) {
-    return `+${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `+${digits}`;
+    }
+    return '';
   }
 
   // Default 10-digit US numbers to +1
@@ -56,16 +65,20 @@ function normalizePhone(phone) {
     return `+1${digits}`;
   }
 
-  return `+${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+${digits}`;
+  }
+
+  return '';
 }
 
-// Validate E.164 phone number (+ followed by 7 to 15 digits)
+// Validate US (+1) E.164 phone number (+1 followed by 10 digits)
 function isValidPhone(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) {
     return false;
   }
-  return /^\+[1-9]\d{6,14}$/.test(normalized);
+  return /^\+1\d{10}$/.test(normalized);
 }
 
 // Trim a user's first or last name

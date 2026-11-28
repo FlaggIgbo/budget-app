@@ -37,13 +37,21 @@ export const requestContactOtp = async (req, res, next) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const result = await otpService.requestContactOtp(req.user.id, {
-      type: req.body?.type,
-      email: req.body?.email,
-      phone: req.body?.phone,
-    });
+    const clientIp = (req.ip || req.socket?.remoteAddress || '').trim();
+    const result = await otpService.requestContactOtp(
+      req.user.id,
+      {
+        type: req.body?.type,
+        email: req.body?.email,
+        phone: req.body?.phone,
+      },
+      { ip: clientIp }
+    );
 
     if (result.error) {
+      if (result.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      }
       return res.status(result.status || 400).json({ error: result.error });
     }
 
